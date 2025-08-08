@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
+	"github.com/microsoft/typescript-go/internal/vfs/zipvfs"
 )
 
 //go:generate go tool golang.org/x/tools/cmd/stringer -type=MessageType -output=stringer_generated.go
@@ -97,7 +98,7 @@ func NewServer(options *ServerOptions) *Server {
 		w:                  bufio.NewWriter(options.Out),
 		stderr:             options.Err,
 		cwd:                options.Cwd,
-		fs:                 bundled.WrapFS(osvfs.FS()),
+		fs:                 bundled.WrapFS(zipvfs.From(osvfs.FS())),
 		defaultLibraryPath: options.DefaultLibraryPath,
 	}
 	logger := project.NewLogger([]io.Writer{options.Err}, "", project.LogLevelVerbose)

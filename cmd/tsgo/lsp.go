@@ -12,6 +12,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/pprof"
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
+	"github.com/microsoft/typescript-go/internal/vfs/zipvfs"
 )
 
 func runLSP(args []string) int {
@@ -37,7 +38,7 @@ func runLSP(args []string) int {
 		defer profileSession.Stop()
 	}
 
-	fs := bundled.WrapFS(osvfs.FS())
+	fs := bundled.WrapFS(zipvfs.From(osvfs.FS()))
 	defaultLibraryPath := bundled.LibPath()
 	typingsLocation := getGlobalTypingsCacheLocation()
 
