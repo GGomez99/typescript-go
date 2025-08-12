@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/microsoft/typescript-go/internal/collections"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/tspath"
 )
 
@@ -294,6 +295,26 @@ func (options *CompilerOptions) GetJSXTransformEnabled() bool {
 }
 
 func (options *CompilerOptions) GetEffectiveTypeRoots(currentDirectory string) (result []string, fromConfig bool) {
+	nmTypes, nmFromConfig := options.GetNodeModulesTypeRoots(currentDirectory)
+
+	pnpTypes := []string{}
+	pnpApi := pnp.GetPnpApi(currentDirectory)
+	if pnpApi != nil {
+		pnpTypes = pnpApi.GetPnpTypeRoots(currentDirectory)
+	}
+
+	if len(nmTypes) > 0 {
+		return append(nmTypes, pnpTypes...), nmFromConfig
+	}
+
+	if len(pnpTypes) > 0 {
+		return pnpTypes, false
+	}
+
+	return nil, false
+}
+
+func (options *CompilerOptions) GetNodeModulesTypeRoots(currentDirectory string) (result []string, fromConfig bool) {
 	if options.TypeRoots != nil {
 		return options.TypeRoots, true
 	}

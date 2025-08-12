@@ -6,6 +6,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/microsoft/typescript-go/internal/tspath"
 )
 
 type PnpApi struct {
@@ -165,12 +167,15 @@ func (p *PnpApi) FindLocator(parentPath string) (*Locator, error) {
 				continue
 			}
 
+			// TODO check that we do need this
+			packageLocation := tspath.RemoveTrailingDirectorySeparator(packageInfo.PackageLocation)
+
 			if len(packageInfo.PackageLocation) <= bestLength {
 				continue
 			}
 
-			if strings.HasPrefix(relativePathWithDot, packageInfo.PackageLocation) {
-				bestLength = len(packageInfo.PackageLocation)
+			if strings.HasPrefix(relativePathWithDot, packageLocation) {
+				bestLength = len(packageLocation)
 				bestLocator = &Locator{Name: name, Reference: reference}
 			}
 		}
@@ -235,4 +240,33 @@ func (p *PnpApi) ParseBareIdentifier(specifier string) (ident string, modulePath
 	modulePath = specifier[len(ident):]
 
 	return ident, modulePath, nil
+}
+
+func (p *PnpApi) GetPnpTypeRoots(currentDirectory string) []string {
+	if p.manifest == nil {
+		return []string{}
+	}
+
+	currentDirectory = tspath.NormalizePath(currentDirectory)
+
+	currentPackage, err := p.FindLocator(currentDirectory)
+	if err != nil {
+		return []string{}
+	}
+
+	if currentPackage == nil {
+		return []string{}
+	}
+
+	packageDependencies := p.GetPackage(*currentPackage).PackageDependencies
+
+	typeRoots := []string{}
+	for _, dep := range packageDependencies {
+		if strings.HasPrefix(dep.Ident, "@types/") && dep.Reference != "" {
+			packageInfo := p.GetPackage(Locator{Name: dep.Ident, Reference: dep.Reference})
+			typeRoots = append(typeRoots, path.Dir(path.Join(p.manifest.dirPath, packageInfo.PackageLocation)))
+		}
+	}
+
+	return typeRoots
 }
