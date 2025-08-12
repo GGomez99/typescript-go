@@ -31,6 +31,8 @@ type osFS struct {
 
 // We do this right at startup to minimize the chance that executable gets moved or deleted.
 var isFileSystemCaseSensitive = func() bool {
+	// TODO: return true if pnp api is available
+
 	// win32/win64 are case insensitive platforms
 	if runtime.GOOS == "windows" {
 		return false
