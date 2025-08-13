@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/dlclark/regexp2"
+	"github.com/microsoft/typescript-go/internal/tspath"
 )
 
 type LinkType string
@@ -44,6 +46,18 @@ type FallbackExclusion struct {
 	Entries []string `json:"entries"`
 }
 
+type PackageTrieData struct {
+	ident     string
+	reference string
+	info      *PackageInfo
+}
+
+type PackageRegistryTrie struct {
+	pathSegment          string
+	childrenPathSegments map[string]*PackageRegistryTrie
+	packageData          *PackageTrieData
+}
+
 type PnpManifestData struct {
 	dirPath string
 
@@ -56,7 +70,8 @@ type PnpManifestData struct {
 	dependencyTreeRoots []Locator
 
 	// Nested maps for package registry (ident -> reference -> PackageInfo)
-	packageRegistryMap map[string]map[string]*PackageInfo
+	packageRegistryMap  map[string]map[string]*PackageInfo
+	packageRegistryTrie *PackageRegistryTrie
 }
 
 func parseManifestFromPath(manifestPath string) (*PnpManifestData, error) {
@@ -121,16 +136,16 @@ func parsePnpManifest(rawData map[string]interface{}, manifestPath string) (*Pnp
 	if registryData, ok := rawData["packageRegistryData"].([]interface{}); ok {
 		for _, entry := range registryData {
 			if entryArr, ok := entry.([]interface{}); ok && len(entryArr) == 2 {
-				packageName := parseString(entryArr[0])
+				ident := parseString(entryArr[0])
 
-				if data.packageRegistryMap[packageName] == nil {
-					data.packageRegistryMap[packageName] = make(map[string]*PackageInfo)
+				if data.packageRegistryMap[ident] == nil {
+					data.packageRegistryMap[ident] = make(map[string]*PackageInfo)
 				}
 
 				if versions, ok := entryArr[1].([]interface{}); ok {
 					for _, version := range versions {
 						if versionArr, ok := version.([]interface{}); ok && len(versionArr) == 2 {
-							versionStr := parseString(versionArr[0])
+							reference := parseString(versionArr[0])
 
 							if infoMap, ok := versionArr[1].(map[string]interface{}); ok {
 								packageInfo := &PackageInfo{
@@ -141,7 +156,8 @@ func parsePnpManifest(rawData map[string]interface{}, manifestPath string) (*Pnp
 									PackagePeers:        getField(infoMap, "packagePeers", parseStringArray),
 								}
 
-								data.packageRegistryMap[packageName][versionStr] = packageInfo
+								data.packageRegistryMap[ident][reference] = packageInfo
+								data.addPackageToTrie(ident, reference, packageInfo)
 							}
 						}
 					}
@@ -151,6 +167,41 @@ func parsePnpManifest(rawData map[string]interface{}, manifestPath string) (*Pnp
 	}
 
 	return data, nil
+}
+
+func (data *PnpManifestData) addPackageToTrie(ident string, reference string, packageInfo *PackageInfo) {
+	if data.packageRegistryTrie == nil {
+		data.packageRegistryTrie = &PackageRegistryTrie{
+			pathSegment:          "",
+			childrenPathSegments: make(map[string]*PackageRegistryTrie),
+			packageData:          nil,
+		}
+	}
+
+	packageData := &PackageTrieData{
+		ident:     ident,
+		reference: reference,
+		info:      packageInfo,
+	}
+
+	packagePath := tspath.RemoveTrailingDirectorySeparator(packageInfo.PackageLocation)
+	packagePathSegments := strings.Split(packagePath, "/")
+
+	currentTrie := data.packageRegistryTrie
+
+	for _, segment := range packagePathSegments {
+		if currentTrie.childrenPathSegments[segment] == nil {
+			currentTrie.childrenPathSegments[segment] = &PackageRegistryTrie{
+				pathSegment:          segment,
+				childrenPathSegments: make(map[string]*PackageRegistryTrie),
+				packageData:          nil,
+			}
+		}
+
+		currentTrie = currentTrie.childrenPathSegments[segment]
+	}
+
+	currentTrie.packageData = packageData
 }
 
 // Helper functions for parsing JSON values - following patterns from tsoptions.parseString, etc.

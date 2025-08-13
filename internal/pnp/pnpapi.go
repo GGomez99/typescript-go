@@ -135,9 +135,6 @@ func (p *PnpApi) GetPackage(locator Locator) *PackageInfo {
 }
 
 func (p *PnpApi) FindLocator(parentPath string) (*Locator, error) {
-	var bestLength int
-	var bestLocator *Locator
-
 	relativePath, err := filepath.Rel(p.manifest.dirPath, parentPath)
 	if err != nil {
 		return nil, err
@@ -161,27 +158,23 @@ func (p *PnpApi) FindLocator(parentPath string) (*Locator, error) {
 		relativePathWithDot = "./" + relativePath
 	}
 
-	for name, referenceMap := range p.manifest.packageRegistryMap {
-		for reference, packageInfo := range referenceMap {
-			if packageInfo.DiscardFromLookup {
-				continue
-			}
+	pathSegments := strings.Split(relativePathWithDot, "/")
+	currentTrie := p.manifest.packageRegistryTrie
 
-			// TODO check that we do need this
-			packageLocation := tspath.RemoveTrailingDirectorySeparator(packageInfo.PackageLocation)
-
-			if len(packageInfo.PackageLocation) <= bestLength {
-				continue
-			}
-
-			if strings.HasPrefix(relativePathWithDot, packageLocation) {
-				bestLength = len(packageLocation)
-				bestLocator = &Locator{Name: name, Reference: reference}
-			}
+	// Go down the trie, looking for the latest defined packageInfo that matches the path
+	for _, segment := range pathSegments {
+		if currentTrie.childrenPathSegments[segment] == nil {
+			break
 		}
+
+		currentTrie = currentTrie.childrenPathSegments[segment]
 	}
 
-	return bestLocator, nil
+	if currentTrie.packageData == nil {
+		return nil, fmt.Errorf("no package found for path %s", relativePath)
+	}
+
+	return &Locator{Name: currentTrie.packageData.ident, Reference: currentTrie.packageData.reference}, nil
 }
 
 func (p *PnpApi) ResolveViaFallback(name string) *PackageDependency {
