@@ -6,49 +6,66 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/iovfs"
 )
 
-type FS struct {
-	fs vfs.FS
+type cachedZipReader struct {
+	reader   *zip.ReadCloser
+	lastUsed time.Time
+	zipMTime time.Time
 }
 
-var _ vfs.FS = (*FS)(nil)
-
-func From(fs vfs.FS) *FS {
-	fsys := &FS{fs: fs}
-	return fsys
+type zipFS struct {
+	fs                  vfs.FS
+	maxOpenReaders      int
+	cachedZipReadersMap map[string]*cachedZipReader
+	cacheReaderMutex    sync.Mutex
 }
 
-func (fsys *FS) DirectoryExists(path string) bool {
+var _ vfs.FS = (*zipFS)(nil)
+
+func From(fs vfs.FS) *zipFS {
+	zipfs := &zipFS{
+		fs:                  fs,
+		maxOpenReaders:      80,
+		cachedZipReadersMap: make(map[string]*cachedZipReader),
+		cacheReaderMutex:    sync.Mutex{},
+	}
+
+	return zipfs
+}
+
+func (zipfs *zipFS) DirectoryExists(path string) bool {
 	path, _, _ = resolveVirtual(path)
 
 	if strings.HasSuffix(path, ".zip") {
-		return fsys.fs.FileExists(path)
+		return zipfs.fs.FileExists(path)
 	}
 
-	fs, formattedPath, _ := getMatchingFS(fsys, path)
+	fs, formattedPath, _ := getMatchingFS(zipfs, path)
 
 	return fs.DirectoryExists(formattedPath)
 }
 
-func (fsys *FS) FileExists(path string) bool {
+func (zipfs *zipFS) FileExists(path string) bool {
 	path, _, _ = resolveVirtual(path)
 
 	if strings.HasSuffix(path, ".zip") {
-		return fsys.fs.FileExists(path)
+		return zipfs.fs.FileExists(path)
 	}
 
-	fs, formattedPath, _ := getMatchingFS(fsys, path)
+	fs, formattedPath, _ := getMatchingFS(zipfs, path)
 	return fs.FileExists(formattedPath)
 }
 
-func (fsys *FS) GetAccessibleEntries(path string) vfs.Entries {
+func (zipfs *zipFS) GetAccessibleEntries(path string) vfs.Entries {
 	path, hash, basePath := resolveVirtual(path)
 
-	fs, formattedPath, zipPath := getMatchingFS(fsys, path)
+	fs, formattedPath, zipPath := getMatchingFS(zipfs, path)
 	entries := fs.GetAccessibleEntries(formattedPath)
 
 	for i, dir := range entries.Directories {
@@ -64,53 +81,53 @@ func (fsys *FS) GetAccessibleEntries(path string) vfs.Entries {
 	return entries
 }
 
-func (fsys *FS) ReadFile(path string) (contents string, ok bool) {
+func (zipfs *zipFS) ReadFile(path string) (contents string, ok bool) {
 	path, _, _ = resolveVirtual(path)
 
-	fs, formattedPath, _ := getMatchingFS(fsys, path)
+	fs, formattedPath, _ := getMatchingFS(zipfs, path)
 	return fs.ReadFile(formattedPath)
 }
 
-func (fsys *FS) Realpath(path string) string {
+func (zipfs *zipFS) Realpath(path string) string {
 	path, hash, basePath := resolveVirtual(path)
 
-	fs, formattedPath, zipPath := getMatchingFS(fsys, path)
+	fs, formattedPath, zipPath := getMatchingFS(zipfs, path)
 	fullPath := filepath.Join(zipPath, fs.Realpath(formattedPath))
 	return makeVirtualPath(basePath, hash, fullPath)
 }
 
-func (fsys *FS) Remove(path string) error {
+func (zipfs *zipFS) Remove(path string) error {
 	path, _, _ = resolveVirtual(path)
 
-	fs, formattedPath, _ := getMatchingFS(fsys, path)
+	fs, formattedPath, _ := getMatchingFS(zipfs, path)
 	return fs.Remove(formattedPath)
 }
 
-func (fsys *FS) Stat(path string) vfs.FileInfo {
+func (zipfs *zipFS) Stat(path string) vfs.FileInfo {
 	path, _, _ = resolveVirtual(path)
 
-	fs, formattedPath, _ := getMatchingFS(fsys, path)
+	fs, formattedPath, _ := getMatchingFS(zipfs, path)
 	return fs.Stat(formattedPath)
 }
 
-func (fsys *FS) UseCaseSensitiveFileNames() bool {
-	return fsys.fs.UseCaseSensitiveFileNames()
+func (zipfs *zipFS) UseCaseSensitiveFileNames() bool {
+	return zipfs.fs.UseCaseSensitiveFileNames()
 }
 
-func (fsys *FS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
+func (zipfs *zipFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
 	root, hash, basePath := resolveVirtual(root)
 
-	fs, formattedPath, zipPath := getMatchingFS(fsys, root)
+	fs, formattedPath, zipPath := getMatchingFS(zipfs, root)
 	return fs.WalkDir(formattedPath, (func(path string, d vfs.DirEntry, err error) error {
 		fullPath := filepath.Join(zipPath, path)
 		return walkFn(makeVirtualPath(basePath, hash, fullPath), d, err)
 	}))
 }
 
-func (fsys *FS) WriteFile(path string, data string, writeByteOrderMark bool) error {
+func (zipfs *zipFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
 	path, _, _ = resolveVirtual(path)
 
-	fs, formattedPath, _ := getMatchingFS(fsys, path)
+	fs, formattedPath, _ := getMatchingFS(zipfs, path)
 	return fs.WriteFile(formattedPath, data, writeByteOrderMark)
 }
 
@@ -126,18 +143,60 @@ func splitZipPath(path string) (string, string) {
 	return parts[0] + ".zip", "/" + parts[1]
 }
 
-func getMatchingFS(fsys *FS, path string) (vfs.FS, string, string) {
+func getMatchingFS(zipfs *zipFS, path string) (vfs.FS, string, string) {
 	if !isZipPath(path) {
-		return fsys.fs, path, ""
+		return zipfs.fs, path, ""
 	}
 
 	zipPath, internalPath := splitZipPath(path)
-	zipReader, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return fsys.fs, path, ""
+
+	zipStat := zipfs.fs.Stat(zipPath)
+	if zipStat == nil {
+		return zipfs.fs, path, ""
 	}
 
-	return iovfs.From(zipReader, fsys.fs.UseCaseSensitiveFileNames()), internalPath, zipPath
+	var usedReader *cachedZipReader
+
+	zipfs.cacheReaderMutex.Lock()
+	defer zipfs.cacheReaderMutex.Unlock()
+
+	zipMTime := zipStat.ModTime()
+
+	cachedReader, ok := zipfs.cachedZipReadersMap[zipPath]
+	if ok && cachedReader.zipMTime.Equal(zipMTime) {
+		cachedReader.lastUsed = time.Now()
+		usedReader = cachedReader
+	} else {
+		zipReader, err := zip.OpenReader(zipPath)
+		if err != nil {
+			return zipfs.fs, path, ""
+		}
+
+		if len(zipfs.cachedZipReadersMap) >= zipfs.maxOpenReaders {
+			zipfs.deleteOldestReader()
+		}
+
+		usedReader = &cachedZipReader{reader: zipReader, lastUsed: time.Now(), zipMTime: zipMTime}
+		zipfs.cachedZipReadersMap[zipPath] = usedReader
+	}
+
+	return iovfs.From(usedReader.reader, zipfs.fs.UseCaseSensitiveFileNames()), internalPath, zipPath
+}
+
+func (zipfs *zipFS) deleteOldestReader() {
+	var oldestReader *cachedZipReader
+	var oldestReaderPath string
+	for path, reader := range zipfs.cachedZipReadersMap {
+		if oldestReader == nil || reader.lastUsed.Before(oldestReader.lastUsed) {
+			oldestReader = reader
+			oldestReaderPath = path
+		}
+	}
+
+	if oldestReader != nil {
+		oldestReader.reader.Close()
+		delete(zipfs.cachedZipReadersMap, oldestReaderPath)
+	}
 }
 
 // TODO insert virtual path handling more properly (with a vfs wrapper maybe)
