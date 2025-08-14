@@ -74,18 +74,47 @@ type PnpManifestData struct {
 	packageRegistryTrie *PackageRegistryTrie
 }
 
-func parseManifestFromPath(manifestPath string) (*PnpManifestData, error) {
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read .pnp.data.json file: %w", err)
+func parseManifestFromPath(manifestDir string) (*PnpManifestData, error) {
+	pnpDataString := ""
+
+	data, err := os.ReadFile(path.Join(manifestDir, ".pnp.data.json"))
+	if err == nil {
+		pnpDataString = string(data)
+	} else {
+		data, err := os.ReadFile(path.Join(manifestDir, ".pnp.cjs"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to read .pnp.cjs file: %w", err)
+		}
+
+		pnpString := string(data)
+
+		manifestRegex := regexp2.MustCompile(`(const[ \r\n]+RAW_RUNTIME_STATE[ \r\n]*=[ \r\n]*|hydrateRuntimeState\(JSON\.parse\()'`, regexp2.None)
+		matches, err := manifestRegex.FindStringMatch(pnpString)
+		if err != nil || matches == nil {
+			return nil, fmt.Errorf("We failed to locate the PnP data payload inside its manifest file. Did you manually edit the file?")
+		}
+
+		start := matches.Index + matches.Length
+		var b strings.Builder
+		b.Grow(len(pnpString))
+		for i := start; i < len(pnpString); i++ {
+			if pnpString[i] == '\'' {
+				break
+			}
+
+			if pnpString[i] != '\\' {
+				b.WriteByte(pnpString[i])
+			}
+		}
+		pnpDataString = b.String()
 	}
 
 	var rawData map[string]interface{}
-	if err := json.Unmarshal(data, &rawData); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	if err := json.Unmarshal([]byte(pnpDataString), &rawData); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON PnP data: %w", err)
 	}
 
-	pnpData, err := parsePnpManifest(rawData, manifestPath)
+	pnpData, err := parsePnpManifest(rawData, manifestDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse PnP data: %w", err)
 	}
@@ -94,8 +123,8 @@ func parseManifestFromPath(manifestPath string) (*PnpManifestData, error) {
 }
 
 // TODO add error handling for corrupted data
-func parsePnpManifest(rawData map[string]interface{}, manifestPath string) (*PnpManifestData, error) {
-	data := &PnpManifestData{dirPath: path.Dir(manifestPath)}
+func parsePnpManifest(rawData map[string]interface{}, manifestDir string) (*PnpManifestData, error) {
+	data := &PnpManifestData{dirPath: manifestDir}
 
 	if roots, ok := rawData["dependencyTreeRoots"].([]interface{}); ok {
 		for _, root := range roots {

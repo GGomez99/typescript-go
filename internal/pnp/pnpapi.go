@@ -113,8 +113,7 @@ func (p *PnpApi) findClosestPnpManifest() (*PnpManifestData, error) {
 	for {
 		pnpPath := path.Join(directoryPath, ".pnp.cjs")
 		if _, err := os.Stat(pnpPath); err == nil {
-			manifestPath := path.Join(directoryPath, ".pnp.data.json")
-			return parseManifestFromPath(manifestPath)
+			return parseManifestFromPath(directoryPath)
 		}
 
 		directoryPath = path.Dir(directoryPath)
