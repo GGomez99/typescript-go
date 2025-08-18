@@ -291,7 +291,11 @@ func (p *Project) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile
 
 // GetResolvedProjectReference implements compiler.CompilerHost.
 func (p *Project) GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine {
-	// TODO, we might need to add the code below for pnp (converted to go)
+	config := p.host.ConfigFileRegistry().acquireConfig(fileName, path, p, nil)
+	if config == nil {
+		return nil
+	}
+	// TODO fix this and identify cases where we do need this
 
 	// With Plug'n'Play, dependencies that list peer dependencies
 	// are "virtualized": they are resolved to a unique (virtual)
@@ -308,34 +312,43 @@ func (p *Project) GetResolvedProjectReference(fileName string, path tspath.Path)
 	// user-provided references in our references by directly querying
 	// the PnP API. This way users don't have to know the virtual paths,
 	// but we still support them just fine even through references.
-
 	// pnpApi := pnp.GetPnpApi(fileName)
 	// if pnpApi != nil {
-	// 	pnpApi.GetPackage(fileName)
+	// 	basePath := p.GetCurrentDirectory()
+
+	// 	getPnpPath := func(path string) string {
+	// 		targetLocator, err := pnpApi.FindLocator(path + "/")
+	// 		if err != nil {
+	// 			return path
+	// 		}
+
+	// 		packageLocation := tspath.ResolvePath(basePath, pnpApi.GetPackage(targetLocator).PackageLocation)
+
+	// 		compareOptions := tspath.ComparePathsOptions{
+	// 			UseCaseSensitiveFileNames: p.host.FS().UseCaseSensitiveFileNames(),
+	// 			CurrentDirectory:          basePath,
+	// 		}
+
+	// 		request := tspath.CombinePaths(targetLocator.Name, tspath.GetRelativePathFromDirectory(packageLocation, path, compareOptions))
+	// 		unqualified, err := pnpApi.ResolveToUnqualified(request, basePath+"/")
+	// 		if err != nil {
+	// 			return path
+	// 		}
+
+	// 		return unqualified
+	// 	}
+
+	// 	for _, ref := range config.ProjectReferences() {
+	// 		ref.Path = getPnpPath(ref.Path)
+	// 	}
+
+	// 	fmt.Println("Project refs after")
+	// 	for _, ref := range config.ProjectReferences() {
+	// 		fmt.Println("Project ref", ref.Path)
+	// 	}
 	// }
 
-	//         const basePath = this.getCurrentDirectory();
-
-	//         const getPnpPath = (path: string) => {
-	//             try {
-	//                 const pnpApi = getPnpApi(`${path}/`);
-	//                 if (!pnpApi) {
-	//                     return path;
-	//                 }
-	//                 const targetLocator = pnpApi.findPackageLocator(`${path}/`);
-	//                 const { packageLocation } = pnpApi.getPackageInformation(targetLocator);
-	//                 const request = combinePaths(targetLocator.name, getRelativePathFromDirectory(packageLocation, path, /*ignoreCase*/ false));
-	//                 return pnpApi.resolveToUnqualified(request, `${basePath}/`);
-	//             }
-	//             catch {
-	//                 // something went wrong with the resolution, try not to fail
-	//                 return path;
-	//             }
-	//         };
-
-	// Then run getPnpPath on all resolvedReferences from acquireConfig()
-
-	return p.host.ConfigFileRegistry().acquireConfig(fileName, path, p, nil)
+	return config
 }
 
 // Updates the program if needed.

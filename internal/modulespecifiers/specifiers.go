@@ -675,7 +675,7 @@ func tryGetModuleNameAsNodeModule(
 		}
 
 		if fromLocator != nil && toLocator != nil {
-			fromInfo := pnpApi.GetPackage(*fromLocator)
+			fromInfo := pnpApi.GetPackage(fromLocator)
 
 			useToLocator := false
 
@@ -696,7 +696,7 @@ func tryGetModuleNameAsNodeModule(
 		}
 
 		if parts != nil {
-			toInfo := pnpApi.GetPackage(*toLocator)
+			toInfo := pnpApi.GetPackage(toLocator)
 			parts = &NodeModulePathParts{
 				TopLevelNodeModulesIndex: -1,
 				TopLevelPackageNameIndex: -1,

@@ -50,7 +50,7 @@ func (p *PnpApi) ResolveToUnqualified(specifier string, parentPath string) (stri
 		return "", nil
 	}
 
-	parentPkg := p.GetPackage(*parentLocator)
+	parentPkg := p.GetPackage(parentLocator)
 
 	var referenceOrAlias *PackageDependency
 	for _, dep := range parentPkg.PackageDependencies {
@@ -99,9 +99,9 @@ func (p *PnpApi) ResolveToUnqualified(specifier string, parentPath string) (stri
 
 	var dependencyPkg *PackageInfo
 	if referenceOrAlias.IsAlias() {
-		dependencyPkg = p.GetPackage(Locator{Name: referenceOrAlias.AliasName, Reference: referenceOrAlias.Reference})
+		dependencyPkg = p.GetPackage(&Locator{Name: referenceOrAlias.AliasName, Reference: referenceOrAlias.Reference})
 	} else {
-		dependencyPkg = p.GetPackage(Locator{Name: referenceOrAlias.Ident, Reference: referenceOrAlias.Reference})
+		dependencyPkg = p.GetPackage(&Locator{Name: referenceOrAlias.Ident, Reference: referenceOrAlias.Reference})
 	}
 
 	return filepath.Join(p.manifest.dirPath, dependencyPkg.PackageLocation, modulePath), nil
@@ -123,7 +123,7 @@ func (p *PnpApi) findClosestPnpManifest() (*PnpManifestData, error) {
 	}
 }
 
-func (p *PnpApi) GetPackage(locator Locator) *PackageInfo {
+func (p *PnpApi) GetPackage(locator *Locator) *PackageInfo {
 	packageRegistryMap := p.manifest.packageRegistryMap
 	packageInfo, ok := packageRegistryMap[locator.Name][locator.Reference]
 	if !ok {
@@ -177,7 +177,7 @@ func (p *PnpApi) FindLocator(parentPath string) (*Locator, error) {
 }
 
 func (p *PnpApi) ResolveViaFallback(name string) *PackageDependency {
-	topLevelPkg := p.GetPackage(Locator{Name: "", Reference: ""})
+	topLevelPkg := p.GetPackage(&Locator{Name: "", Reference: ""})
 
 	if topLevelPkg != nil {
 		for _, dep := range topLevelPkg.PackageDependencies {
@@ -250,12 +250,12 @@ func (p *PnpApi) GetPnpTypeRoots(currentDirectory string) []string {
 		return []string{}
 	}
 
-	packageDependencies := p.GetPackage(*currentPackage).PackageDependencies
+	packageDependencies := p.GetPackage(currentPackage).PackageDependencies
 
 	typeRoots := []string{}
 	for _, dep := range packageDependencies {
 		if strings.HasPrefix(dep.Ident, "@types/") && dep.Reference != "" {
-			packageInfo := p.GetPackage(Locator{Name: dep.Ident, Reference: dep.Reference})
+			packageInfo := p.GetPackage(&Locator{Name: dep.Ident, Reference: dep.Reference})
 			typeRoots = append(typeRoots, path.Dir(path.Join(p.manifest.dirPath, packageInfo.PackageLocation)))
 		}
 	}
