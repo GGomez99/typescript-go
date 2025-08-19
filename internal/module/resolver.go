@@ -1741,8 +1741,20 @@ func (r *resolutionState) readPackageJsonPeerDependencies(packageJsonInfo *packa
 	packageDirectory := r.realPath(packageJsonInfo.PackageDirectory)
 	nodeModules := packageDirectory[:strings.LastIndex(packageDirectory, "/node_modules")+len("/node_modules")] + "/"
 	builder := strings.Builder{}
+	// TODO: find an example that needs this change
+	pnpApi := pnp.GetPnpApi(packageJsonInfo.PackageDirectory)
 	for name := range peerDependencies.Value {
-		peerPackageJson := r.getPackageJsonInfo(nodeModules+name /*onlyRecordFailures*/, false)
+		var peerDependencyPath string
+
+		if pnpApi != nil {
+			peerDependencyPath, _ = pnpApi.ResolveToUnqualified(name, packageDirectory)
+		}
+
+		if peerDependencyPath == "" {
+			peerDependencyPath = nodeModules + name
+		}
+
+		peerPackageJson := r.getPackageJsonInfo(peerDependencyPath, false /*onlyRecordFailures*/)
 		if peerPackageJson != nil {
 			version := peerPackageJson.Contents.Version.Value
 			builder.WriteString("+")
