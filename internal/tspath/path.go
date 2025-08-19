@@ -920,3 +920,7 @@ func ForEachAncestorDirectoryPath[T any](directory Path, callback func(directory
 func HasExtension(fileName string) bool {
 	return strings.Contains(GetBaseFileName(fileName), ".")
 }
+
+func IsZipPath(path string) bool {
+	return strings.Contains(path, ".zip/") || strings.HasSuffix(path, ".zip")
+}

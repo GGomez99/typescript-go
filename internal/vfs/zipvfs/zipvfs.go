@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/iovfs"
 )
@@ -131,10 +132,6 @@ func (zipfs *zipFS) WriteFile(path string, data string, writeByteOrderMark bool)
 	return fs.WriteFile(formattedPath, data, writeByteOrderMark)
 }
 
-func isZipPath(path string) bool {
-	return strings.Contains(path, ".zip/") || strings.HasSuffix(path, ".zip")
-}
-
 func splitZipPath(path string) (string, string) {
 	parts := strings.Split(path, ".zip/")
 	if len(parts) < 2 {
@@ -144,7 +141,7 @@ func splitZipPath(path string) (string, string) {
 }
 
 func getMatchingFS(zipfs *zipFS, path string) (vfs.FS, string, string) {
-	if !isZipPath(path) {
+	if !tspath.IsZipPath(path) {
 		return zipfs.fs, path, ""
 	}
 
