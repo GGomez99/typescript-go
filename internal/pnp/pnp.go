@@ -1,7 +1,6 @@
 package pnp
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 )
@@ -42,7 +41,6 @@ func GetPnpApi(filePath string) *PnpApi {
 		cachedPnpApi = pnpApi
 	} else {
 		// Couldn't load PnP API
-		fmt.Println("Error loading PnP API", err)
 		cachedPnpApi = nil
 	}
 
