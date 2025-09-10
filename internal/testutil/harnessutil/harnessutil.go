@@ -3,6 +3,7 @@ package harnessutil
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -33,6 +34,8 @@ import (
 
 // Posix-style path to additional test libraries
 const testLibFolder = "/.lib"
+
+const FakeTSVersion = "FakeTSVersion"
 
 type TestFile struct {
 	UnitName string
@@ -221,6 +224,7 @@ func CompileFilesEx(
 		Errors:     errors,
 	}, harnessOptions)
 	result.Symlinks = symlinks
+	result.Trace = host.tracer.String()
 	result.Repeat = func(testConfig TestConfiguration) *CompilationResult {
 		newHarnessOptions := *harnessOptions
 		newCompilerOptions := compilerOptions.Clone()
@@ -471,6 +475,7 @@ func getOptionValue(t *testing.T, option *tsoptions.CommandLineOption, value str
 
 type cachedCompilerHost struct {
 	compiler.CompilerHost
+	tracer *TracerForBaselining
 }
 
 var sourceFileCache collections.SyncMap[SourceFileCacheKey, *ast.SourceFile]
@@ -511,9 +516,99 @@ func (h *cachedCompilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast
 	return result
 }
 
-func createCompilerHost(fs vfs.FS, defaultLibraryPath string, currentDirectory string) compiler.CompilerHost {
+type TracerForBaselining struct {
+	opts             tspath.ComparePathsOptions
+	packageJsonCache map[tspath.Path]bool
+	builder          *strings.Builder
+}
+
+func NewTracerForBaselining(opts tspath.ComparePathsOptions, builder *strings.Builder) *TracerForBaselining {
+	return &TracerForBaselining{
+		opts:             opts,
+		packageJsonCache: make(map[tspath.Path]bool),
+		builder:          builder,
+	}
+}
+
+func (t *TracerForBaselining) Trace(msg string) {
+	t.TraceWithWriter(t.builder, msg, true)
+}
+
+func (t *TracerForBaselining) TraceWithWriter(w io.Writer, msg string, usePackageJsonCache bool) {
+	fmt.Fprintln(w, t.sanitizeTrace(msg, usePackageJsonCache))
+}
+
+func (t *TracerForBaselining) sanitizeTrace(msg string, usePackageJsonCache bool) string {
+	// Version
+	if str := strings.Replace(msg, "'"+core.Version()+"'", "'"+FakeTSVersion+"'", 1); str != msg {
+		return str
+	}
+	// caching of fs in trace to be replaces with non caching version
+	if str := strings.TrimSuffix(msg, "' does not exist according to earlier cached lookups."); str != msg {
+		file := strings.TrimPrefix(str, "File '")
+		if usePackageJsonCache {
+			filePath := tspath.ToPath(file, t.opts.CurrentDirectory, t.opts.UseCaseSensitiveFileNames)
+			if _, has := t.packageJsonCache[filePath]; has {
+				return msg
+			} else {
+				t.packageJsonCache[filePath] = false
+			}
+		}
+		return fmt.Sprintf("File '%s' does not exist.", file)
+	}
+	if str := strings.TrimSuffix(msg, "' exists according to earlier cached lookups."); str != msg {
+		file := strings.TrimPrefix(str, "File '")
+		if usePackageJsonCache {
+			filePath := tspath.ToPath(file, t.opts.CurrentDirectory, t.opts.UseCaseSensitiveFileNames)
+			if _, has := t.packageJsonCache[filePath]; has {
+				return msg
+			} else {
+				t.packageJsonCache[filePath] = true
+			}
+		}
+		return fmt.Sprintf("Found 'package.json' at '%s'.", file)
+	}
+	if usePackageJsonCache {
+		if str := strings.TrimSuffix(msg, "' does not exist."); str != msg {
+			file := strings.TrimPrefix(str, "File '")
+			filePath := tspath.ToPath(file, t.opts.CurrentDirectory, t.opts.UseCaseSensitiveFileNames)
+			if _, has := t.packageJsonCache[filePath]; !has {
+				t.packageJsonCache[filePath] = false
+				return msg
+			} else {
+				return fmt.Sprintf("File '%s' does not exist according to earlier cached lookups.", file)
+			}
+		}
+		if str := strings.TrimPrefix(msg, "Found 'package.json' at '"); str != msg {
+			file := strings.TrimSuffix(str, "'.")
+			filePath := tspath.ToPath(file, t.opts.CurrentDirectory, t.opts.UseCaseSensitiveFileNames)
+			if _, has := t.packageJsonCache[filePath]; !has {
+				t.packageJsonCache[filePath] = true
+				return msg
+			} else {
+				return fmt.Sprintf("File '%s' exists according to earlier cached lookups.", file)
+			}
+		}
+	}
+	return msg
+}
+
+func (t *TracerForBaselining) String() string {
+	return t.builder.String()
+}
+
+func (t *TracerForBaselining) Reset() {
+	t.packageJsonCache = make(map[tspath.Path]bool)
+}
+
+func createCompilerHost(fs vfs.FS, defaultLibraryPath string, currentDirectory string) *cachedCompilerHost {
+	tracer := NewTracerForBaselining(tspath.ComparePathsOptions{
+		UseCaseSensitiveFileNames: fs.UseCaseSensitiveFileNames(),
+		CurrentDirectory:          currentDirectory,
+	}, &strings.Builder{})
 	return &cachedCompilerHost{
-		CompilerHost: compiler.NewCompilerHost(currentDirectory, fs, defaultLibraryPath, nil),
+		CompilerHost: compiler.NewCompilerHost(currentDirectory, fs, defaultLibraryPath, nil, tracer.Trace),
+		tracer:       tracer,
 	}
 }
 
@@ -609,6 +704,7 @@ type CompilationResult struct {
 	outputs          []*TestFile
 	inputs           []*TestFile
 	inputsAndOutputs collections.OrderedMap[string, *CompilationOutput]
+	Trace            string
 }
 
 type CompilationOutput struct {

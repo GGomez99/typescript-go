@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/debug"
 	"github.com/microsoft/typescript-go/internal/tspath"
 )
 
@@ -1408,6 +1409,16 @@ func GetNameOfDeclaration(declaration *Node) *Node {
 	return nil
 }
 
+func GetImportClauseOfDeclaration(declaration *Declaration) *ImportClause {
+	switch declaration.Kind {
+	case KindImportDeclaration:
+		return declaration.AsImportDeclaration().ImportClause.AsImportClause()
+	case KindJSDocImportTag:
+		return declaration.AsJSDocImportTag().ImportClause.AsImportClause()
+	}
+	return nil
+}
+
 func GetNonAssignedNameOfDeclaration(declaration *Node) *Node {
 	// !!!
 	switch declaration.Kind {
@@ -1753,21 +1764,15 @@ func GetThisContainer(node *Node, includeArrowFunctions bool, includeClassComput
 }
 
 func GetSuperContainer(node *Node, stopOnFunctions bool) *Node {
-	for {
-		node = node.Parent
-		if node == nil {
-			return nil
-		}
+	for node = node.Parent; node != nil; node = node.Parent {
 		switch node.Kind {
 		case KindComputedPropertyName:
 			node = node.Parent
-			break
 		case KindFunctionDeclaration, KindFunctionExpression, KindArrowFunction:
 			if !stopOnFunctions {
 				continue
 			}
-			// falls through
-
+			return node
 		case KindPropertyDeclaration, KindPropertySignature, KindMethodDeclaration, KindMethodSignature, KindConstructor, KindGetAccessor, KindSetAccessor, KindClassStaticBlockDeclaration:
 			return node
 		case KindDecorator:
@@ -1781,9 +1786,9 @@ func GetSuperContainer(node *Node, stopOnFunctions bool) *Node {
 				// from the parent class declaration.
 				node = node.Parent
 			}
-			break
 		}
 	}
+	return nil
 }
 
 func GetImmediatelyInvokedFunctionExpression(fn *Node) *Node {
@@ -2101,16 +2106,6 @@ func TryGetTextOfPropertyName(name *Node) (string, bool) {
 		return name.AsJsxNamespacedName().Namespace.Text() + ":" + name.Name().Text(), true
 	}
 	return "", false
-}
-
-// True if node is of a JSDoc kind that may contain comment text.
-func IsJSDocCommentContainingNode(node *Node) bool {
-	return node.Kind == KindJSDoc ||
-		node.Kind == KindJSDocText ||
-		node.Kind == KindJSDocTypeLiteral ||
-		node.Kind == KindJSDocSignature ||
-		IsJSDocLinkLike(node) ||
-		IsJSDocTag(node)
 }
 
 func IsJSDocNode(node *Node) bool {
@@ -2732,6 +2727,15 @@ func IsRequireCall(node *Node, requireStringLiteralLikeArgument bool) bool {
 	return !requireStringLiteralLikeArgument || IsStringLiteralLike(call.Arguments.Nodes[0])
 }
 
+func IsRequireVariableStatement(node *Node) bool {
+	if IsVariableStatement(node) {
+		if declarations := node.AsVariableStatement().DeclarationList.AsVariableDeclarationList().Declarations.Nodes; len(declarations) > 0 {
+			return core.Every(declarations, IsVariableDeclarationInitializedToRequire)
+		}
+	}
+	return false
+}
+
 func GetJSXImplicitImportBase(compilerOptions *core.CompilerOptions, file *SourceFile) string {
 	jsxImportSourcePragma := GetPragmaFromSourceFile(file, "jsximportsource")
 	jsxRuntimePragma := GetPragmaFromSourceFile(file, "jsxruntime")
@@ -3017,13 +3021,27 @@ func IsTypeKeywordToken(node *Node) bool {
 	return node.Kind == KindTypeKeyword
 }
 
-// If node is a single comment JSDoc, we do not visit the comment node list.
-func IsJSDocSingleCommentNodeList(parent *Node, nodeList *NodeList) bool {
-	return IsJSDocSingleCommentNode(parent) && nodeList == parent.AsJSDoc().Comment
+// See `IsJSDocSingleCommentNode`.
+func IsJSDocSingleCommentNodeList(nodeList *NodeList) bool {
+	if nodeList == nil || len(nodeList.Nodes) == 0 {
+		return false
+	}
+	parent := nodeList.Nodes[0].Parent
+	return IsJSDocSingleCommentNode(parent) && nodeList == parent.CommentList()
 }
 
+// See `IsJSDocSingleCommentNode`.
+func IsJSDocSingleCommentNodeComment(node *Node) bool {
+	if node == nil || node.Parent == nil {
+		return false
+	}
+	return IsJSDocSingleCommentNode(node.Parent) && node == node.Parent.CommentList().Nodes[0]
+}
+
+// In Strada, if a JSDoc node has a single comment, that comment is represented as a string property
+// as a simplification, and therefore that comment is not visited by `forEachChild`.
 func IsJSDocSingleCommentNode(node *Node) bool {
-	return node.Kind == KindJSDoc && node.AsJSDoc().Comment != nil && len(node.AsJSDoc().Comment.Nodes) == 1
+	return hasComment(node.Kind) && node.CommentList() != nil && len(node.CommentList().Nodes) == 1
 }
 
 func IsValidTypeOnlyAliasUseSite(useSite *Node) bool {
@@ -3150,7 +3168,7 @@ func IsTemplateLiteralToken(node *Node) bool {
 }
 
 func GetExternalModuleImportEqualsDeclarationExpression(node *Node) *Node {
-	// Debug.assert(isExternalModuleImportEqualsDeclaration(node))
+	debug.Assert(IsExternalModuleImportEqualsDeclaration(node))
 	return node.AsImportEqualsDeclaration().ModuleReference.AsExternalModuleReference().Expression
 }
 
@@ -3634,4 +3652,218 @@ func GetSemanticJsxChildren(children []*JsxChild) []*JsxChild {
 			return true
 		}
 	})
+}
+
+// Returns true if the node kind has a comment property.
+func hasComment(kind Kind) bool {
+	switch kind {
+	case KindJSDoc, KindJSDocTag, KindJSDocAugmentsTag, KindJSDocImplementsTag,
+		KindJSDocDeprecatedTag, KindJSDocPublicTag, KindJSDocPrivateTag, KindJSDocProtectedTag,
+		KindJSDocReadonlyTag, KindJSDocOverrideTag, KindJSDocCallbackTag, KindJSDocOverloadTag,
+		KindJSDocParameterTag, KindJSDocPropertyTag, KindJSDocReturnTag, KindJSDocThisTag,
+		KindJSDocTypeTag, KindJSDocTemplateTag, KindJSDocTypedefTag, KindJSDocSeeTag,
+		KindJSDocSatisfiesTag, KindJSDocImportTag:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsAssignmentPattern(node *Node) bool {
+	return node.Kind == KindArrayLiteralExpression || node.Kind == KindObjectLiteralExpression
+}
+
+func GetElementsOfBindingOrAssignmentPattern(name *Node) []*Node {
+	switch name.Kind {
+	case KindObjectBindingPattern, KindArrayBindingPattern:
+		// `a` in `{a}`
+		// `a` in `[a]`
+		return name.AsBindingPattern().Elements.Nodes
+	case KindArrayLiteralExpression:
+		// `a` in `[a]`
+		return name.AsArrayLiteralExpression().Elements.Nodes
+	case KindObjectLiteralExpression:
+		// `a` in `{a}`
+		return name.AsObjectLiteralExpression().Properties.Nodes
+	}
+	return nil
+}
+
+func IsDeclarationBindingElement(bindingElement *Node) bool {
+	switch bindingElement.Kind {
+	case KindVariableDeclaration, KindParameter, KindBindingElement:
+		return true
+	default:
+		return false
+	}
+}
+
+/**
+ * Gets the name of an BindingOrAssignmentElement.
+ */
+func GetTargetOfBindingOrAssignmentElement(bindingElement *Node) *Node {
+	if IsDeclarationBindingElement(bindingElement) {
+		// `a` in `let { a } = ...`
+		// `a` in `let { a = 1 } = ...`
+		// `b` in `let { a: b } = ...`
+		// `b` in `let { a: b = 1 } = ...`
+		// `a` in `let { ...a } = ...`
+		// `{b}` in `let { a: {b} } = ...`
+		// `{b}` in `let { a: {b} = 1 } = ...`
+		// `[b]` in `let { a: [b] } = ...`
+		// `[b]` in `let { a: [b] = 1 } = ...`
+		// `a` in `let [a] = ...`
+		// `a` in `let [a = 1] = ...`
+		// `a` in `let [...a] = ...`
+		// `{a}` in `let [{a}] = ...`
+		// `{a}` in `let [{a} = 1] = ...`
+		// `[a]` in `let [[a]] = ...`
+		// `[a]` in `let [[a] = 1] = ...`
+		return bindingElement.Name()
+	}
+
+	if IsObjectLiteralElement(bindingElement) {
+		switch bindingElement.Kind {
+		case KindPropertyAssignment:
+			// `b` in `({ a: b } = ...)`
+			// `b` in `({ a: b = 1 } = ...)`
+			// `{b}` in `({ a: {b} } = ...)`
+			// `{b}` in `({ a: {b} = 1 } = ...)`
+			// `[b]` in `({ a: [b] } = ...)`
+			// `[b]` in `({ a: [b] = 1 } = ...)`
+			// `b.c` in `({ a: b.c } = ...)`
+			// `b.c` in `({ a: b.c = 1 } = ...)`
+			// `b[0]` in `({ a: b[0] } = ...)`
+			// `b[0]` in `({ a: b[0] = 1 } = ...)`
+			return GetTargetOfBindingOrAssignmentElement(bindingElement.Initializer())
+		case KindShorthandPropertyAssignment:
+			// `a` in `({ a } = ...)`
+			// `a` in `({ a = 1 } = ...)`
+			return bindingElement.Name()
+		case KindSpreadAssignment:
+			// `a` in `({ ...a } = ...)`
+			return GetTargetOfBindingOrAssignmentElement(bindingElement.AsSpreadAssignment().Expression)
+		}
+
+		// no target
+		return nil
+	}
+
+	if IsAssignmentExpression(bindingElement /*excludeCompoundAssignment*/, true) {
+		// `a` in `[a = 1] = ...`
+		// `{a}` in `[{a} = 1] = ...`
+		// `[a]` in `[[a] = 1] = ...`
+		// `a.b` in `[a.b = 1] = ...`
+		// `a[0]` in `[a[0] = 1] = ...`
+		return GetTargetOfBindingOrAssignmentElement(bindingElement.AsBinaryExpression().Left)
+	}
+
+	if IsSpreadElement(bindingElement) {
+		// `a` in `[...a] = ...`
+		return GetTargetOfBindingOrAssignmentElement(bindingElement.AsSpreadElement().Expression)
+	}
+
+	// `a` in `[a] = ...`
+	// `{a}` in `[{a}] = ...`
+	// `[a]` in `[[a]] = ...`
+	// `a.b` in `[a.b] = ...`
+	// `a[0]` in `[a[0]] = ...`
+	return bindingElement
+}
+
+func TryGetPropertyNameOfBindingOrAssignmentElement(bindingElement *Node) *Node {
+	switch bindingElement.Kind {
+	case KindBindingElement:
+		// `a` in `let { a: b } = ...`
+		// `[a]` in `let { [a]: b } = ...`
+		// `"a"` in `let { "a": b } = ...`
+		// `1` in `let { 1: b } = ...`
+		if bindingElement.AsBindingElement().PropertyName != nil {
+			propertyName := bindingElement.AsBindingElement().PropertyName
+			// if ast.IsPrivateIdentifier(propertyName) {
+			// 	return Debug.failBadSyntaxKind(propertyName) // !!!
+			// }
+			if IsComputedPropertyName(propertyName) && IsStringOrNumericLiteralLike(propertyName.AsComputedPropertyName().Expression) {
+				return propertyName.AsComputedPropertyName().Expression
+			}
+			return propertyName
+		}
+	case KindPropertyAssignment:
+		// `a` in `({ a: b } = ...)`
+		// `[a]` in `({ [a]: b } = ...)`
+		// `"a"` in `({ "a": b } = ...)`
+		// `1` in `({ 1: b } = ...)`
+		if bindingElement.Name() != nil {
+			propertyName := bindingElement.Name()
+			// if ast.IsPrivateIdentifier(propertyName) {
+			// 	return Debug.failBadSyntaxKind(propertyName) // !!!
+			// }
+			if IsComputedPropertyName(propertyName) && IsStringOrNumericLiteralLike(propertyName.AsComputedPropertyName().Expression) {
+				return propertyName.AsComputedPropertyName().Expression
+			}
+			return propertyName
+		}
+	case KindSpreadAssignment:
+		// `a` in `({ ...a } = ...)`
+		// if ast.IsPrivateIdentifier(bindingElement.Name()) {
+		// 	return Debug.failBadSyntaxKind(bindingElement.Name()) // !!!
+		// }
+		return bindingElement.Name()
+	}
+
+	target := GetTargetOfBindingOrAssignmentElement(bindingElement)
+	if target != nil && IsPropertyName(target) {
+		return target
+	}
+	return nil
+}
+
+/**
+ * Walk an AssignmentPattern to determine if it contains object rest (`...`) syntax. We cannot rely on
+ * propagation of `TransformFlags.ContainsObjectRestOrSpread` since it isn't propagated by default in
+ * ObjectLiteralExpression and ArrayLiteralExpression since we do not know whether they belong to an
+ * AssignmentPattern at the time the nodes are parsed.
+ */
+func ContainsObjectRestOrSpread(node *Node) bool {
+	if node.SubtreeFacts()&SubtreeContainsObjectRestOrSpread != 0 {
+		return true
+	}
+	if node.SubtreeFacts()&SubtreeContainsESObjectRestOrSpread != 0 {
+		// check for nested spread assignments, otherwise '{ x: { a, ...b } = foo } = c'
+		// will not be correctly interpreted by the rest/spread transformer
+		for _, element := range GetElementsOfBindingOrAssignmentPattern(node) {
+			target := GetTargetOfBindingOrAssignmentElement(element)
+			if target != nil && IsAssignmentPattern(target) {
+				if target.SubtreeFacts()&SubtreeContainsObjectRestOrSpread != 0 {
+					return true
+				}
+				if target.SubtreeFacts()&SubtreeContainsESObjectRestOrSpread != 0 {
+					if ContainsObjectRestOrSpread(target) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func IsEmptyObjectLiteral(expression *Node) bool {
+	return expression.Kind == KindObjectLiteralExpression && len(expression.AsObjectLiteralExpression().Properties.Nodes) == 0
+}
+
+func IsEmptyArrayLiteral(expression *Node) bool {
+	return expression.Kind == KindArrayLiteralExpression && len(expression.AsArrayLiteralExpression().Elements.Nodes) == 0
+}
+
+func GetRestIndicatorOfBindingOrAssignmentElement(bindingElement *Node) *Node {
+	switch bindingElement.Kind {
+	case KindParameter:
+		return bindingElement.AsParameterDeclaration().DotDotDotToken
+	case KindBindingElement:
+		return bindingElement.AsBindingElement().DotDotDotToken
+	case KindSpreadElement, KindSpreadAssignment:
+		return bindingElement
+	}
+	return nil
 }

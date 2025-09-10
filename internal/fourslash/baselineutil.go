@@ -12,6 +12,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/debug"
 	"github.com/microsoft/typescript-go/internal/ls"
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
 	"github.com/microsoft/typescript-go/internal/vfs"
@@ -181,7 +182,8 @@ func (f *FourslashTest) getBaselineContentForFile(
 		if options.startMarkerPrefix != nil {
 			if startPrefix := options.startMarkerPrefix(span.Location); startPrefix != "" {
 				if fileName == options.marker.FileName() && span.Range.Start == options.marker.LSPosition {
-					// ts.Debug.assert(!detailPrefixes.has(details[0]), "Expected only single prefix at marker location");
+					_, ok := detailPrefixes[*details[0]]
+					debug.Assert(!ok, "Expected only single prefix at marker location")
 					detailPrefixes[*details[0]] = startPrefix
 				} else if span.contextSpan.Range.Start == span.Range.Start {
 					// Write it at contextSpan instead of textSpan
@@ -196,7 +198,8 @@ func (f *FourslashTest) getBaselineContentForFile(
 		if options.endMarkerSuffix != nil {
 			if endSuffix := options.endMarkerSuffix(span.Location); endSuffix != "" {
 				if fileName == options.marker.FileName() && textSpanEnd == options.marker.LSPosition {
-					// ts.Debug.assert(!detailSuffixes.has(details[0]), "Expected only single suffix at marker location");
+					_, ok := detailSuffixes[*details[0]]
+					debug.Assert(!ok, "Expected only single suffix at marker location")
 					detailSuffixes[*details[0]] = endSuffix
 				} else if *contextSpanEnd == textSpanEnd {
 					// Write it at contextSpan instead of textSpan
@@ -560,19 +563,23 @@ func (t *textWithContext) sliceOfContent(start *int, end *int) string {
 }
 
 func (t *textWithContext) getIndex(i interface{}) *int {
-	switch i.(type) {
+	switch i := i.(type) {
 	case *int:
-		return i.(*int)
+		return i
 	case int:
-		return ptrTo(i.(int))
+		return ptrTo(i)
 	case core.TextPos:
-		return ptrTo(int(i.(core.TextPos)))
+		return ptrTo(int(i))
 	case *core.TextPos:
-		return ptrTo(int(*i.(*core.TextPos)))
+		return ptrTo(int(*i))
 	case lsproto.Position:
-		return t.getIndex(t.converters.LineAndCharacterToPosition(t, i.(lsproto.Position)))
+		return t.getIndex(t.converters.LineAndCharacterToPosition(t, i))
 	case *lsproto.Position:
-		return t.getIndex(t.converters.LineAndCharacterToPosition(t, *i.(*lsproto.Position)))
+		return t.getIndex(t.converters.LineAndCharacterToPosition(t, *i))
 	}
 	panic(fmt.Sprintf("getIndex: unsupported type %T", i))
+}
+
+func codeFence(lang string, code string) string {
+	return "```" + lang + "\n" + code + "\n```"
 }

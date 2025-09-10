@@ -89,6 +89,13 @@ func (zipfs *zipFS) ReadFile(path string) (contents string, ok bool) {
 	return fs.ReadFile(formattedPath)
 }
 
+func (zipfs *zipFS) Chtimes(path string, mtime time.Time, atime time.Time) error {
+	path, _, _ = resolveVirtual(path)
+
+	fs, formattedPath, _ := getMatchingFS(zipfs, path)
+	return fs.Chtimes(formattedPath, mtime, atime)
+}
+
 func (zipfs *zipFS) Realpath(path string) string {
 	path, hash, basePath := resolveVirtual(path)
 
