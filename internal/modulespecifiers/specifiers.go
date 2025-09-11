@@ -696,7 +696,10 @@ func tryGetModuleNameFromRootDirs(
 	return processEnding(shortest, allowedEndings, compilerOptions, host)
 }
 
-func tryGetModuleNameAsNodeModule(
+// TODO test this feature
+// Help to identify the feature to test: when you're adding a new symbol into the file, TS will suggest you to import it from another file.
+// To do that it'll map that other file path into an import path, and that's the function responsible for that.
+func tryGetModuleNameAsPnpPackage(
 	pathObj ModulePath,
 	info Info,
 	importingSourceFile SourceFileForSpecifierGeneration,
@@ -706,52 +709,52 @@ func tryGetModuleNameAsNodeModule(
 	packageNameOnly bool,
 	overrideMode core.ResolutionMode,
 ) string {
+	pnpApi := pnp.GetPnpApi(importingSourceFile.FileName())
+	if pnpApi == nil {
+		return ""
+	}
+
 	parts := GetNodeModulePathParts(pathObj.FileName)
 
-	// TODO understand what feature this part impacts
 	pnpPackageName := ""
+	fromLocator, _ := pnpApi.FindLocator(importingSourceFile.FileName())
+	toLocator, _ := pnpApi.FindLocator(pathObj.FileName)
 
-	pnpApi := pnp.GetPnpApi(importingSourceFile.FileName())
-	if pnpApi != nil {
-		fromLocator, _ := pnpApi.FindLocator(importingSourceFile.FileName())
-		toLocator, _ := pnpApi.FindLocator(pathObj.FileName)
+	// Don't use the package name when the imported file is inside
+	// the source directory (prefer a relative path instead)
+	if fromLocator == toLocator {
+		return ""
+	}
 
-		// Don't use the package name when the imported file is inside
-		// the source directory (prefer a relative path instead)
-		if fromLocator == toLocator {
-			return ""
-		}
+	if fromLocator != nil && toLocator != nil {
+		fromInfo := pnpApi.GetPackage(fromLocator)
 
-		if fromLocator != nil && toLocator != nil {
-			fromInfo := pnpApi.GetPackage(fromLocator)
+		useToLocator := false
 
-			useToLocator := false
-
-			for i := range fromInfo.PackageDependencies {
-				isAlias := fromInfo.PackageDependencies[i].IsAlias()
-				if isAlias && fromInfo.PackageDependencies[i].AliasName == toLocator.Name && fromInfo.PackageDependencies[i].Reference == toLocator.Reference {
-					useToLocator = true
-					break
-				} else if fromInfo.PackageDependencies[i].Ident == toLocator.Name && fromInfo.PackageDependencies[i].Reference == toLocator.Reference {
-					useToLocator = true
-					break
-				}
-			}
-
-			if useToLocator {
-				pnpPackageName = toLocator.Name
+		for i := range fromInfo.PackageDependencies {
+			isAlias := fromInfo.PackageDependencies[i].IsAlias()
+			if isAlias && fromInfo.PackageDependencies[i].AliasName == toLocator.Name && fromInfo.PackageDependencies[i].Reference == toLocator.Reference {
+				useToLocator = true
+				break
+			} else if fromInfo.PackageDependencies[i].Ident == toLocator.Name && fromInfo.PackageDependencies[i].Reference == toLocator.Reference {
+				useToLocator = true
+				break
 			}
 		}
 
-		if parts != nil {
-			toInfo := pnpApi.GetPackage(toLocator)
-			parts = &NodeModulePathParts{
-				TopLevelNodeModulesIndex: -1,
-				TopLevelPackageNameIndex: -1,
-				// The last character from packageLocation is the trailing "/", we want to point to it
-				PackageRootIndex: len(toInfo.PackageLocation) - 1,
-				FileNameIndex:    strings.LastIndex(pathObj.FileName, "/"),
-			}
+		if useToLocator {
+			pnpPackageName = toLocator.Name
+		}
+	}
+
+	if parts != nil {
+		toInfo := pnpApi.GetPackage(toLocator)
+		parts = &NodeModulePathParts{
+			TopLevelNodeModulesIndex: -1,
+			TopLevelPackageNameIndex: -1,
+			// The last character from packageLocation is the trailing "/", we want to point to it
+			PackageRootIndex: len(toInfo.PackageLocation) - 1,
+			FileNameIndex:    strings.LastIndex(pathObj.FileName, "/"),
 		}
 	}
 
@@ -763,7 +766,6 @@ func tryGetModuleNameAsNodeModule(
 	preferences := getModuleSpecifierPreferences(userPreferences, host, options, importingSourceFile, "")
 	allowedEndings := preferences.getAllowedEndingsInPreferredOrder(core.ResolutionModeNone)
 
-	caseSensitive := host.UseCaseSensitiveFileNames()
 	moduleSpecifier := pathObj.FileName
 	isPackageRootPath := false
 	if !packageNameOnly {
@@ -813,24 +815,100 @@ func tryGetModuleNameAsNodeModule(
 		return ""
 	}
 
-	// If PnP is enabled the node_modules entries we'll get will always be relevant even if they
-	// are located in a weird path apparently outside of the source directory
-	if pnpApi == nil {
-		globalTypingsCacheLocation := host.GetGlobalTypingsCacheLocation()
-		// Get a path that's relative to node_modules or the importing file's path
-		// if node_modules folder is in this folder or any of its parent folders, no need to keep it.
-		pathToTopLevelNodeModules := moduleSpecifier[0:parts.TopLevelNodeModulesIndex]
-
-		if !stringutil.HasPrefix(info.SourceDirectory, pathToTopLevelNodeModules, caseSensitive) || len(globalTypingsCacheLocation) > 0 && stringutil.HasPrefix(globalTypingsCacheLocation, pathToTopLevelNodeModules, caseSensitive) {
-			return ""
-		}
-	}
-
 	// If the module was found in @types, get the actual Node package name
 	nodeModulesDirectoryName := moduleSpecifier[parts.TopLevelPackageNameIndex+1:]
 	if pnpPackageName != "" {
 		nodeModulesDirectoryName = pnpPackageName + moduleSpecifier[parts.PackageRootIndex:]
 	}
+
+	return GetPackageNameFromTypesPackageName(nodeModulesDirectoryName)
+}
+
+func tryGetModuleNameAsNodeModule(
+	pathObj ModulePath,
+	info Info,
+	importingSourceFile SourceFileForSpecifierGeneration,
+	host ModuleSpecifierGenerationHost,
+	options *core.CompilerOptions,
+	userPreferences UserPreferences,
+	packageNameOnly bool,
+	overrideMode core.ResolutionMode,
+) string {
+	pnpModuleName := tryGetModuleNameAsPnpPackage(pathObj, info, importingSourceFile, host, options, userPreferences, packageNameOnly, overrideMode)
+	if pnpModuleName != "" {
+		return pnpModuleName
+	}
+
+	parts := GetNodeModulePathParts(pathObj.FileName)
+	if parts == nil {
+		return ""
+	}
+
+	// Simplify the full file path to something that can be resolved by Node.
+	preferences := getModuleSpecifierPreferences(userPreferences, host, options, importingSourceFile, "")
+	allowedEndings := preferences.getAllowedEndingsInPreferredOrder(core.ResolutionModeNone)
+
+	caseSensitive := host.UseCaseSensitiveFileNames()
+	moduleSpecifier := pathObj.FileName
+	isPackageRootPath := false
+	if !packageNameOnly {
+		packageRootIndex := parts.PackageRootIndex
+		var moduleFileName string
+		for true {
+			// If the module could be imported by a directory name, use that directory's name
+			pkgJsonResults := tryDirectoryWithPackageJson(
+				*parts,
+				pathObj,
+				importingSourceFile,
+				host,
+				overrideMode,
+				options,
+				allowedEndings,
+				"",
+			)
+			moduleFileToTry := pkgJsonResults.moduleFileToTry
+			packageRootPath := pkgJsonResults.packageRootPath
+			blockedByExports := pkgJsonResults.blockedByExports
+			verbatimFromExports := pkgJsonResults.verbatimFromExports
+			if blockedByExports {
+				return "" // File is under this package.json, but is not publicly exported - there's no way to name it via `node_modules` resolution
+			}
+			if verbatimFromExports {
+				return moduleFileToTry
+			}
+			//}
+			if len(packageRootPath) > 0 {
+				moduleSpecifier = packageRootPath
+				isPackageRootPath = true
+				break
+			}
+			if len(moduleFileName) == 0 {
+				moduleFileName = moduleFileToTry
+			}
+			// try with next level of directory
+			packageRootIndex = core.IndexAfter(pathObj.FileName, "/", packageRootIndex+1)
+			if packageRootIndex == -1 {
+				moduleSpecifier = processEnding(moduleFileName, allowedEndings, options, host)
+				break
+			}
+		}
+	}
+
+	if pathObj.IsRedirect && !isPackageRootPath {
+		return ""
+	}
+
+	globalTypingsCacheLocation := host.GetGlobalTypingsCacheLocation()
+	// Get a path that's relative to node_modules or the importing file's path
+	// if node_modules folder is in this folder or any of its parent folders, no need to keep it.
+	pathToTopLevelNodeModules := moduleSpecifier[0:parts.TopLevelNodeModulesIndex]
+
+	if !stringutil.HasPrefix(info.SourceDirectory, pathToTopLevelNodeModules, caseSensitive) || len(globalTypingsCacheLocation) > 0 && stringutil.HasPrefix(globalTypingsCacheLocation, pathToTopLevelNodeModules, caseSensitive) {
+		return ""
+	}
+
+	// If the module was found in @types, get the actual Node package name
+	nodeModulesDirectoryName := moduleSpecifier[parts.TopLevelPackageNameIndex+1:]
 
 	return GetPackageNameFromTypesPackageName(nodeModulesDirectoryName)
 }
@@ -850,7 +928,7 @@ func tryDirectoryWithPackageJson(
 	overrideMode core.ResolutionMode,
 	options *core.CompilerOptions,
 	allowedEndings []ModuleSpecifierEnding,
-	pnpPackageName string,
+	packageNameOverride string,
 ) pkgJsonDirAttemptResult {
 	rootIdx := parts.PackageRootIndex
 	if rootIdx == -1 {
@@ -884,7 +962,7 @@ func tryDirectoryWithPackageJson(
 		// name in the package.json content via url/filepath dependency specifiers. We need to
 		// use the actual directory name, so don't look at `packageJsonContent.name` here.
 		nodeModulesDirectoryName := packageRootPath[parts.TopLevelPackageNameIndex+1:]
-		packageName := pnpPackageName
+		packageName := packageNameOverride
 		if packageName == "" {
 			packageName = GetPackageNameFromTypesPackageName(nodeModulesDirectoryName)
 		}
