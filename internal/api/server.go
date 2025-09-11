@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/bundled"
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/project/logging"
 	"github.com/microsoft/typescript-go/internal/vfs"
@@ -94,12 +95,20 @@ func NewServer(options *ServerOptions) *Server {
 		panic("Cwd is required")
 	}
 
+	pnpApi := pnp.GetPnpApi(options.Cwd)
+	var fs vfs.FS
+	if pnpApi != nil {
+		fs = zipvfs.From(osvfs.FS())
+	} else {
+		fs = osvfs.FS()
+	}
+
 	server := &Server{
 		r:                  bufio.NewReader(options.In),
 		w:                  bufio.NewWriter(options.Out),
 		stderr:             options.Err,
 		cwd:                options.Cwd,
-		fs:                 bundled.WrapFS(zipvfs.From(osvfs.FS())),
+		fs:                 bundled.WrapFS(fs),
 		defaultLibraryPath: options.DefaultLibraryPath,
 	}
 	logger := logging.NewLogger(options.Err)

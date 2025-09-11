@@ -9,8 +9,10 @@ import (
 	"github.com/microsoft/typescript-go/internal/bundled"
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/lsp"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/pprof"
 	"github.com/microsoft/typescript-go/internal/tspath"
+	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
 	"github.com/microsoft/typescript-go/internal/vfs/zipvfs"
 )
@@ -38,7 +40,14 @@ func runLSP(args []string) int {
 		defer profileSession.Stop()
 	}
 
-	fs := bundled.WrapFS(zipvfs.From(osvfs.FS()))
+	pnpApi := pnp.GetPnpApi(core.Must(os.Getwd()))
+	var fs vfs.FS
+	if pnpApi != nil {
+		fs = zipvfs.From(osvfs.FS())
+	} else {
+		fs = osvfs.FS()
+	}
+
 	defaultLibraryPath := bundled.LibPath()
 	typingsLocation := getGlobalTypingsCacheLocation()
 
@@ -47,7 +56,7 @@ func runLSP(args []string) int {
 		Out:                lsp.ToWriter(os.Stdout),
 		Err:                os.Stderr,
 		Cwd:                core.Must(os.Getwd()),
-		FS:                 fs,
+		FS:                 bundled.WrapFS(fs),
 		DefaultLibraryPath: defaultLibraryPath,
 		TypingsLocation:    typingsLocation,
 	})

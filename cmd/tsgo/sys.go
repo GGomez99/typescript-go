@@ -8,6 +8,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/bundled"
 	"github.com/microsoft/typescript-go/internal/execute/tsc"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
@@ -67,9 +68,17 @@ func newSystem() *osSys {
 		os.Exit(int(tsc.ExitStatusInvalidProject_OutputsSkipped))
 	}
 
+	pnpApi := pnp.GetPnpApi(tspath.NormalizePath(cwd))
+	var fs vfs.FS
+	if pnpApi != nil {
+		fs = zipvfs.From(osvfs.FS())
+	} else {
+		fs = osvfs.FS()
+	}
+
 	return &osSys{
 		cwd:                tspath.NormalizePath(cwd),
-		fs:                 bundled.WrapFS(zipvfs.From(osvfs.FS())),
+		fs:                 bundled.WrapFS(fs),
 		defaultLibraryPath: bundled.LibPath(),
 		writer:             os.Stdout,
 		start:              time.Now(),
