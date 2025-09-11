@@ -1,5 +1,14 @@
 package pnp
 
+/*
+ * Yarn Plug'n'Play (generally referred to as Yarn PnP) is the default installation strategy in modern releases of Yarn.
+ * Yarn PnP generates a single Node.js loader file in place of the typical node_modules folder.
+ * This loader file, named .pnp.cjs, contains all information about your project's dependency tree, informing your tools as to
+ * the location of the packages on the disk and letting them know how to resolve require and import calls.
+ *
+ * The full specification is available at https://yarnpkg.com/advanced/pnp-spec
+ */
+
 import (
 	"fmt"
 	"os"
