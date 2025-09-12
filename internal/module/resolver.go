@@ -476,7 +476,7 @@ func (r *resolutionState) resolveNodeLikeWorker() *ResolvedModule {
 		resolved := r.nodeLoadModuleByRelativeName(r.extensions, candidate, false, true)
 		return r.createResolvedModule(
 			resolved,
-			resolved != nil && strings.Contains(resolved.path, "/node_modules/"),
+			resolved != nil && (strings.Contains(resolved.path, "/node_modules/") || pnp.IsPnpVirtualPath(resolved.path)),
 		)
 	}
 	return r.createResolvedModule(nil, false)
@@ -1079,7 +1079,7 @@ func (r *resolutionState) loadModuleFromSpecificNodeModulesDirectoryImpl(ext ext
 }
 
 func (r *resolutionState) createResolvedModuleHandlingSymlink(resolved *resolved) *ResolvedModule {
-	isExternalLibraryImport := resolved != nil && strings.Contains(resolved.path, "/node_modules/")
+	isExternalLibraryImport := resolved != nil && (strings.Contains(resolved.path, "/node_modules/") || pnp.IsPnpVirtualPath(resolved.path))
 	if r.compilerOptions.PreserveSymlinks != core.TSTrue &&
 		isExternalLibraryImport &&
 		resolved.originalPath == "" &&
@@ -1127,7 +1127,7 @@ func (r *resolutionState) createResolvedTypeReferenceDirective(resolved *resolve
 		resolvedTypeReferenceDirective.ResolvedFileName = resolved.path
 		resolvedTypeReferenceDirective.Primary = primary
 		resolvedTypeReferenceDirective.PackageId = resolved.packageId
-		resolvedTypeReferenceDirective.IsExternalLibraryImport = strings.Contains(resolved.path, "/node_modules/")
+		resolvedTypeReferenceDirective.IsExternalLibraryImport = strings.Contains(resolved.path, "/node_modules/") || pnp.IsPnpVirtualPath(resolved.path)
 
 		if r.compilerOptions.PreserveSymlinks != core.TSTrue {
 			originalPath, resolvedFileName := r.getOriginalAndResolvedFileName(resolved.path)
