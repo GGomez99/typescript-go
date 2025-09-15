@@ -17,6 +17,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
 	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/modulespecifiers"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/stringutil"
 	"github.com/microsoft/typescript-go/internal/tspath"
 )
@@ -441,6 +442,11 @@ func (l *LanguageService) isImportable(
 	// }
 
 	fromPath := fromFile.FileName()
+	pnpApi := pnp.GetPnpApi(fromPath)
+	if pnpApi != nil {
+		return pnpApi.IsImportable(fromPath, toFile.FileName())
+	}
+
 	useCaseSensitiveFileNames := moduleSpecifierResolutionHost.UseCaseSensitiveFileNames()
 	globalTypingsCache := l.GetProgram().GetGlobalTypingsCacheLocation()
 	modulePaths := modulespecifiers.GetEachFileNameOfModule(

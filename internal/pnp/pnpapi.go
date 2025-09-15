@@ -271,3 +271,27 @@ func (p *PnpApi) GetPnpTypeRoots(currentDirectory string) []string {
 
 	return typeRoots
 }
+
+func (p *PnpApi) IsImportable(fromFileName string, toFileName string) bool {
+	fromLocator, errFromLocator := p.FindLocator(fromFileName)
+	toLocator, errToLocator := p.FindLocator(toFileName)
+
+	if fromLocator == nil || toLocator == nil || errFromLocator != nil || errToLocator != nil {
+		return false
+	}
+
+	fromInfo := p.GetPackage(fromLocator)
+	for _, dep := range fromInfo.PackageDependencies {
+		if dep.Reference == toLocator.Reference {
+			if dep.IsAlias() && dep.AliasName == toLocator.Name {
+				return true
+			}
+
+			if dep.Ident == toLocator.Name {
+				return true
+			}
+		}
+	}
+
+	return false
+}
