@@ -272,23 +272,12 @@ func GetEachFileNameOfModule(
 		// so we only need to remove them from the realpath filenames.
 		for _, p := range targets {
 			if !(shouldFilterIgnoredPaths && containsIgnoredPath(p)) {
-				isInNodeModules := ContainsNodeModules(p)
-
-				// TODO: understand what this change actually impacts
-				if !isInNodeModules {
-					pnpApi := pnp.GetPnpApi(p)
-					if pnpApi != nil {
-						fromLocator, _ := pnpApi.FindLocator(importingFileName)
-						toLocator, _ := pnpApi.FindLocator(p)
-						if fromLocator != nil && toLocator != nil && fromLocator.Name != toLocator.Name {
-							isInNodeModules = true
-						}
-					}
-				}
-
 				results = append(results, ModulePath{
-					FileName:        p,
-					IsInNodeModules: isInNodeModules,
+					FileName: p,
+					// TODO: test this
+					// It impacts tagging external workspace dependencies as module dependencies, to trigger a module name resolver for
+					// import suggestions
+					IsInNodeModules: ContainsNodeModules(p) || pnp.IsInPnpModule(importingFileName, p),
 					IsRedirect:      referenceRedirect == p,
 				})
 			}
@@ -331,7 +320,7 @@ func GetEachFileNameOfModule(
 			if !(shouldFilterIgnoredPaths && containsIgnoredPath(p)) {
 				results = append(results, ModulePath{
 					FileName:        p,
-					IsInNodeModules: ContainsNodeModules(p),
+					IsInNodeModules: ContainsNodeModules(p) || pnp.IsInPnpModule(importingFileName, p),
 					IsRedirect:      referenceRedirect == p,
 				})
 			}
@@ -714,8 +703,6 @@ func tryGetModuleNameAsPnpPackage(
 		return ""
 	}
 
-	parts := GetNodeModulePathParts(pathObj.FileName)
-
 	pnpPackageName := ""
 	fromLocator, _ := pnpApi.FindLocator(importingSourceFile.FileName())
 	toLocator, _ := pnpApi.FindLocator(pathObj.FileName)
@@ -747,14 +734,15 @@ func tryGetModuleNameAsPnpPackage(
 		}
 	}
 
-	if parts != nil {
+	var parts *NodeModulePathParts
+	if toLocator != nil {
 		toInfo := pnpApi.GetPackage(toLocator)
+		packageRootAbsolutePath := pnpApi.GetPackageLocationAbsolutePath(toInfo)
 		parts = &NodeModulePathParts{
 			TopLevelNodeModulesIndex: -1,
 			TopLevelPackageNameIndex: -1,
-			// The last character from packageLocation is the trailing "/", we want to point to it
-			PackageRootIndex: len(toInfo.PackageLocation) - 1,
-			FileNameIndex:    strings.LastIndex(pathObj.FileName, "/"),
+			PackageRootIndex:         len(packageRootAbsolutePath),
+			FileNameIndex:            strings.LastIndex(pathObj.FileName, "/"),
 		}
 	}
 
@@ -909,7 +897,6 @@ func tryGetModuleNameAsNodeModule(
 
 	// If the module was found in @types, get the actual Node package name
 	nodeModulesDirectoryName := moduleSpecifier[parts.TopLevelPackageNameIndex+1:]
-
 	return GetPackageNameFromTypesPackageName(nodeModulesDirectoryName)
 }
 

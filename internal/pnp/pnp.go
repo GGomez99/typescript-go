@@ -55,3 +55,15 @@ func GetPnpApi(filePath string) *PnpApi {
 func IsPnpVirtualPath(path string) bool {
 	return strings.Contains(path, "/__virtual__/")
 }
+
+func IsInPnpModule(fromFileName string, toFileName string) bool {
+	pnpApi := GetPnpApi(fromFileName)
+	if pnpApi == nil {
+		return false
+	}
+
+	fromLocator, _ := pnpApi.FindLocator(fromFileName)
+	toLocator, _ := pnpApi.FindLocator(toFileName)
+	// The targeted filename is in a pnp module different from the requesting filename
+	return fromLocator != nil && toLocator != nil && fromLocator.Name != toLocator.Name
+}

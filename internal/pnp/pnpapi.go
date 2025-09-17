@@ -295,3 +295,12 @@ func (p *PnpApi) IsImportable(fromFileName string, toFileName string) bool {
 
 	return false
 }
+
+func (p *PnpApi) GetPackageLocationAbsolutePath(packageInfo *PackageInfo) string {
+	if packageInfo == nil {
+		return ""
+	}
+
+	packageLocation := packageInfo.PackageLocation
+	return filepath.Join(p.manifest.dirPath, packageLocation)
+}
