@@ -175,69 +175,6 @@ func NewProject(
 	return project
 }
 
-// GetResolvedProjectReference implements compiler.CompilerHost.
-func (p *Project) GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine {
-	return nil
-	// config := p.host.configFileRegistry.acquireConfigForProject(fileName, path, p, nil)
-	// if config == nil {
-	// 	return nil
-	// }
-	// TODO fix this and identify cases where we do need this
-
-	// With Plug'n'Play, dependencies that list peer dependencies
-	// are "virtualized": they are resolved to a unique (virtual)
-	// path that the underlying filesystem layer then resolve back
-	// to the original location.
-	//
-	// When a workspace depends on another workspace with peer
-	// dependencies, this other workspace will thus be resolved to
-	// a unique path that won't match what the initial project has
-	// listed in its `references` field, and TS thus won't leverage
-	// the reference at all.
-	//
-	// To avoid that, we compute here the virtualized paths for the
-	// user-provided references in our references by directly querying
-	// the PnP API. This way users don't have to know the virtual paths,
-	// but we still support them just fine even through references.
-	// pnpApi := pnp.GetPnpApi(fileName)
-	// if pnpApi != nil {
-	// 	basePath := p.GetCurrentDirectory()
-
-	// 	getPnpPath := func(path string) string {
-	// 		targetLocator, err := pnpApi.FindLocator(path + "/")
-	// 		if err != nil {
-	// 			return path
-	// 		}
-
-	// 		packageLocation := tspath.ResolvePath(basePath, pnpApi.GetPackage(targetLocator).PackageLocation)
-
-	// 		compareOptions := tspath.ComparePathsOptions{
-	// 			UseCaseSensitiveFileNames: p.host.FS().UseCaseSensitiveFileNames(),
-	// 			CurrentDirectory:          basePath,
-	// 		}
-
-	// 		request := tspath.CombinePaths(targetLocator.Name, tspath.GetRelativePathFromDirectory(packageLocation, path, compareOptions))
-	// 		unqualified, err := pnpApi.ResolveToUnqualified(request, basePath+"/")
-	// 		if err != nil {
-	// 			return path
-	// 		}
-
-	// 		return unqualified
-	// 	}
-
-	// 	for _, ref := range config.ProjectReferences() {
-	// 		ref.Path = getPnpPath(ref.Path)
-	// 	}
-
-	// 	fmt.Println("Project refs after")
-	// 	for _, ref := range config.ProjectReferences() {
-	// 		fmt.Println("Project ref", ref.Path)
-	// 	}
-	// }
-
-	// return config
-}
-
 func (p *Project) Name() string {
 	return p.configFileName
 }
