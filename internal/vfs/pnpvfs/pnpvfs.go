@@ -119,7 +119,8 @@ func (pnpFS *pnpFS) Stat(path string) vfs.FileInfo {
 }
 
 func (pnpFS *pnpFS) UseCaseSensitiveFileNames() bool {
-	return pnpFS.fs.UseCaseSensitiveFileNames()
+	// pnp fs is always case sensitive
+	return true
 }
 
 func (pnpFS *pnpFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
