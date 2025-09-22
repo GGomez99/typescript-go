@@ -150,10 +150,12 @@ func parsePnpManifest(rawData map[string]interface{}, manifestDir string) (*PnpM
 
 	if exclusions, ok := rawData["fallbackExclusionList"].([]interface{}); ok {
 		for _, exclusion := range exclusions {
-			if exclusionMap, ok := exclusion.(map[string]interface{}); ok {
+			if exclusionArr, ok := exclusion.([]interface{}); ok && len(exclusionArr) == 2 {
+				name := parseString(exclusionArr[0])
+				entries := parseStringArray(exclusionArr[1])
 				exclusionEntry := &FallbackExclusion{
-					Name:    getField(exclusionMap, "name", parseString),
-					Entries: getField(exclusionMap, "entries", parseStringArray),
+					Name:    name,
+					Entries: entries,
 				}
 				data.fallbackExclusionMap[exclusionEntry.Name] = exclusionEntry
 			}
