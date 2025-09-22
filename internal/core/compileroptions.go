@@ -294,26 +294,6 @@ func (options *CompilerOptions) GetJSXTransformEnabled() bool {
 }
 
 func (options *CompilerOptions) GetEffectiveTypeRoots(currentDirectory string) (result []string, fromConfig bool) {
-	nmTypes, nmFromConfig := options.GetNodeModulesTypeRoots(currentDirectory)
-
-	pnpTypes := []string{}
-	pnpApi := pnp.GetPnpApi(currentDirectory)
-	if pnpApi != nil {
-		pnpTypes = pnpApi.GetPnpTypeRoots(currentDirectory)
-	}
-
-	if len(nmTypes) > 0 {
-		return append(nmTypes, pnpTypes...), nmFromConfig
-	}
-
-	if len(pnpTypes) > 0 {
-		return pnpTypes, false
-	}
-
-	return nil, false
-}
-
-func (options *CompilerOptions) GetNodeModulesTypeRoots(currentDirectory string) (result []string, fromConfig bool) {
 	if options.TypeRoots != nil {
 		return options.TypeRoots, true
 	}
@@ -329,6 +309,26 @@ func (options *CompilerOptions) GetNodeModulesTypeRoots(currentDirectory string)
 		}
 	}
 
+	nmTypes, nmFromConfig := options.GetNodeModulesTypeRoots(baseDir)
+
+	pnpTypes := []string{}
+	pnpApi := pnp.GetPnpApi(baseDir)
+	if pnpApi != nil {
+		pnpTypes = pnpApi.GetPnpTypeRoots(baseDir)
+	}
+
+	if len(nmTypes) > 0 {
+		return append(nmTypes, pnpTypes...), nmFromConfig
+	}
+
+	if len(pnpTypes) > 0 {
+		return pnpTypes, false
+	}
+
+	return nil, false
+}
+
+func (options *CompilerOptions) GetNodeModulesTypeRoots(baseDir string) (result []string, fromConfig bool) {
 	typeRoots := make([]string, 0, strings.Count(baseDir, "/"))
 	tspath.ForEachAncestorDirectory(baseDir, func(dir string) (any, bool) {
 		typeRoots = append(typeRoots, tspath.CombinePaths(dir, "node_modules", "@types"))

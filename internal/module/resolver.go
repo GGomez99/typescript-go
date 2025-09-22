@@ -208,7 +208,7 @@ func (r *Resolver) ResolveTypeReferenceDirective(
 	compilerOptions := GetCompilerOptionsWithRedirect(r.compilerOptions, redirectedReference)
 	containingDirectory := tspath.GetDirectoryPath(containingFile)
 
-	typeRoots, fromConfig := compilerOptions.GetEffectiveTypeRoots(containingDirectory)
+	typeRoots, fromConfig := compilerOptions.GetEffectiveTypeRoots(r.host.GetCurrentDirectory())
 	if traceBuilder != nil {
 		traceBuilder.write(diagnostics.Resolving_type_reference_directive_0_containing_file_1_root_directory_2.Format(typeReferenceDirectiveName, containingFile, strings.Join(typeRoots, ",")))
 		traceBuilder.traceResolutionUsingProjectReference(redirectedReference)
