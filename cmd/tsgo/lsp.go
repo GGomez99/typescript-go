@@ -14,7 +14,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
-	"github.com/microsoft/typescript-go/internal/vfs/zipvfs"
+	"github.com/microsoft/typescript-go/internal/vfs/pnpvfs"
 )
 
 func runLSP(args []string) int {
@@ -43,7 +43,7 @@ func runLSP(args []string) int {
 	pnpApi := pnp.GetPnpApi(core.Must(os.Getwd()))
 	var fs vfs.FS
 	if pnpApi != nil {
-		fs = zipvfs.From(osvfs.FS())
+		fs = pnpvfs.From(osvfs.FS())
 	} else {
 		fs = osvfs.FS()
 	}

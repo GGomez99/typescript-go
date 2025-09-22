@@ -20,7 +20,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/project/logging"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
-	"github.com/microsoft/typescript-go/internal/vfs/zipvfs"
+	"github.com/microsoft/typescript-go/internal/vfs/pnpvfs"
 )
 
 //go:generate go tool golang.org/x/tools/cmd/stringer -type=MessageType -output=stringer_generated.go
@@ -98,7 +98,7 @@ func NewServer(options *ServerOptions) *Server {
 	pnpApi := pnp.GetPnpApi(options.Cwd)
 	var fs vfs.FS
 	if pnpApi != nil {
-		fs = zipvfs.From(osvfs.FS())
+		fs = pnpvfs.From(osvfs.FS())
 	} else {
 		fs = osvfs.FS()
 	}

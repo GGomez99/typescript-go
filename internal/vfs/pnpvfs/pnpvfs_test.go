@@ -1,4 +1,4 @@
-package zipvfs_test
+package pnpvfs_test
 
 import (
 	"archive/zip"
@@ -8,12 +8,10 @@ import (
 	"testing"
 
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
+	"github.com/microsoft/typescript-go/internal/vfs/pnpvfs"
 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
-	"github.com/microsoft/typescript-go/internal/vfs/zipvfs"
 	"gotest.tools/v3/assert"
 )
-
-// TODO: refine generated tests
 
 func createTestZip(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -38,7 +36,7 @@ func createTestZip(t *testing.T, files map[string]string) string {
 	return zipPath
 }
 
-func TestZipVFS_BasicFileOperations(t *testing.T) {
+func TestPnpVfs_BasicFileOperations(t *testing.T) {
 	t.Parallel()
 
 	underlyingFS := vfstest.FromMap(map[string]string{
@@ -46,7 +44,7 @@ func TestZipVFS_BasicFileOperations(t *testing.T) {
 		"/project/package.json": `{"name": "test"}`,
 	}, true)
 
-	fs := zipvfs.From(underlyingFS)
+	fs := pnpvfs.From(underlyingFS)
 	assert.Assert(t, fs.FileExists("/project/src/index.ts"))
 	assert.Assert(t, !fs.FileExists("/project/nonexistent.ts"))
 
@@ -58,7 +56,7 @@ func TestZipVFS_BasicFileOperations(t *testing.T) {
 	assert.Assert(t, !fs.DirectoryExists("/project/nonexistent"))
 }
 
-func TestZipVFS_ZipFileDetection(t *testing.T) {
+func TestPnpVfs_ZipFileDetection(t *testing.T) {
 	t.Parallel()
 
 	zipFiles := map[string]string{
@@ -72,7 +70,7 @@ func TestZipVFS_ZipFileDetection(t *testing.T) {
 		zipPath: "zip content placeholder",
 	}, true)
 
-	fs := zipvfs.From(underlyingFS)
+	fs := pnpvfs.From(underlyingFS)
 
 	fmt.Println(zipPath)
 	assert.Assert(t, fs.FileExists(zipPath))
@@ -83,10 +81,10 @@ func TestZipVFS_ZipFileDetection(t *testing.T) {
 	_, _ = fs.ReadFile(zipInternalPath)
 }
 
-func TestZipVFS_ErrorHandling(t *testing.T) {
+func TestPnpVfs_ErrorHandling(t *testing.T) {
 	t.Parallel()
 
-	fs := zipvfs.From(osvfs.FS())
+	fs := pnpvfs.From(osvfs.FS())
 
 	t.Run("NonexistentZipFile", func(t *testing.T) {
 		result := fs.FileExists("/nonexistent/path/archive.zip/file.txt")
@@ -106,16 +104,16 @@ func TestZipVFS_ErrorHandling(t *testing.T) {
 	})
 }
 
-func TestZipVFS_CaseSensitivity(t *testing.T) {
+func TestPnpVfs_CaseSensitivity(t *testing.T) {
 	t.Parallel()
 
-	sensitiveFS := zipvfs.From(vfstest.FromMap(map[string]string{}, true))
+	sensitiveFS := pnpvfs.From(vfstest.FromMap(map[string]string{}, true))
 	assert.Assert(t, sensitiveFS.UseCaseSensitiveFileNames())
-	insensitiveFS := zipvfs.From(vfstest.FromMap(map[string]string{}, false))
+	insensitiveFS := pnpvfs.From(vfstest.FromMap(map[string]string{}, false))
 	assert.Assert(t, !insensitiveFS.UseCaseSensitiveFileNames())
 }
 
-func TestZipVFS_FallbackToRegularFiles(t *testing.T) {
+func TestPnpVfs_FallbackToRegularFiles(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -123,7 +121,7 @@ func TestZipVFS_FallbackToRegularFiles(t *testing.T) {
 	err := os.WriteFile(regularFile, []byte("regular content"), 0o644)
 	assert.NilError(t, err)
 
-	fs := zipvfs.From(osvfs.FS())
+	fs := pnpvfs.From(osvfs.FS())
 
 	assert.Assert(t, fs.FileExists(regularFile))
 
@@ -149,7 +147,7 @@ func TestZipPath_Detection(t *testing.T) {
 		{"/absolute/archive.zip/file.txt", true},
 	}
 
-	fs := zipvfs.From(vfstest.FromMap(map[string]string{}, true))
+	fs := pnpvfs.From(vfstest.FromMap(map[string]string{}, true))
 
 	for _, tc := range testCases {
 		t.Run(tc.path, func(t *testing.T) {
@@ -159,7 +157,7 @@ func TestZipPath_Detection(t *testing.T) {
 	}
 }
 
-func TestZipVFS_RealZipIntegration(t *testing.T) {
+func TestPnpVfs_RealZipIntegration(t *testing.T) {
 	t.Parallel()
 
 	zipFiles := map[string]string{
@@ -170,7 +168,7 @@ func TestZipVFS_RealZipIntegration(t *testing.T) {
 	}
 
 	zipPath := createTestZip(t, zipFiles)
-	fs := zipvfs.From(osvfs.FS())
+	fs := pnpvfs.From(osvfs.FS())
 
 	assert.Assert(t, fs.FileExists(zipPath))
 

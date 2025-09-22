@@ -12,7 +12,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
-	"github.com/microsoft/typescript-go/internal/vfs/zipvfs"
+	"github.com/microsoft/typescript-go/internal/vfs/pnpvfs"
 	"golang.org/x/term"
 )
 
@@ -71,7 +71,7 @@ func newSystem() *osSys {
 	pnpApi := pnp.GetPnpApi(tspath.NormalizePath(cwd))
 	var fs vfs.FS
 	if pnpApi != nil {
-		fs = zipvfs.From(osvfs.FS())
+		fs = pnpvfs.From(osvfs.FS())
 	} else {
 		fs = osvfs.FS()
 	}
