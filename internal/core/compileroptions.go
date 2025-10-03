@@ -12,7 +12,7 @@ import (
 
 //go:generate go tool golang.org/x/tools/cmd/stringer -type=ModuleKind -trimprefix=ModuleKind -output=modulekind_stringer_generated.go
 //go:generate go tool golang.org/x/tools/cmd/stringer -type=ScriptTarget -trimprefix=ScriptTarget -output=scripttarget_stringer_generated.go
-//go:generate go tool mvdan.cc/gofumpt -lang=go1.25 -w modulekind_stringer_generated.go scripttarget_stringer_generated.go
+//go:generate go tool mvdan.cc/gofumpt -w modulekind_stringer_generated.go scripttarget_stringer_generated.go
 
 type CompilerOptions struct {
 	_ noCopy
@@ -255,7 +255,7 @@ func (options *CompilerOptions) GetESModuleInterop() bool {
 		return options.ESModuleInterop == TSTrue
 	}
 	switch options.GetEmitModuleKind() {
-	case ModuleKindNode16, ModuleKindNodeNext, ModuleKindPreserve:
+	case ModuleKindNode16, ModuleKindNode18, ModuleKindNodeNext, ModuleKindPreserve:
 		return true
 	}
 	return false
@@ -278,7 +278,7 @@ func (options *CompilerOptions) GetResolveJsonModule() bool {
 }
 
 func (options *CompilerOptions) ShouldPreserveConstEnums() bool {
-	return options.PreserveConstEnums == TSTrue || options.IsolatedModules == TSTrue
+	return options.PreserveConstEnums == TSTrue || options.GetIsolatedModules()
 }
 
 func (options *CompilerOptions) GetAllowJS() bool {
@@ -291,6 +291,13 @@ func (options *CompilerOptions) GetAllowJS() bool {
 func (options *CompilerOptions) GetJSXTransformEnabled() bool {
 	jsx := options.Jsx
 	return jsx == JsxEmitReact || jsx == JsxEmitReactJSX || jsx == JsxEmitReactJSXDev
+}
+
+func (options *CompilerOptions) GetStrictOptionValue(value Tristate) bool {
+	if value != TSUnknown {
+		return value == TSTrue
+	}
+	return options.Strict == TSTrue
 }
 
 func (options *CompilerOptions) GetEffectiveTypeRoots(currentDirectory string) (result []string, fromConfig bool) {
@@ -426,6 +433,7 @@ const (
 	// Node16+ is an amalgam of commonjs (albeit updated) and es2022+, and represents a distinct module system from es2020/esnext
 	ModuleKindNode16   ModuleKind = 100
 	ModuleKindNode18   ModuleKind = 101
+	ModuleKindNode20   ModuleKind = 102
 	ModuleKindNodeNext ModuleKind = 199
 	// Emit as written
 	ModuleKindPreserve ModuleKind = 200

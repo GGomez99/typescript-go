@@ -28,7 +28,7 @@ func ComparePositions(pos, other lsproto.Position) int {
 	if lineComp := cmp.Compare(pos.Line, other.Line); lineComp != 0 {
 		return lineComp
 	}
-	return cmp.Compare(pos.Line, other.Line)
+	return cmp.Compare(pos.Character, other.Character)
 }
 
 // Implements a cmp.Compare like function for two *lsproto.Range
@@ -490,10 +490,10 @@ func probablyUsesSemicolons(file *ast.SourceFile) bool {
 			if lastToken != nil && lastToken.Kind == ast.KindSemicolonToken {
 				withSemicolon++
 			} else if lastToken != nil && lastToken.Kind != ast.KindCommaToken {
-				lastTokenLine, _ := scanner.GetLineAndCharacterOfPosition(
+				lastTokenLine, _ := scanner.GetECMALineAndCharacterOfPosition(
 					file,
 					astnav.GetStartOfNode(lastToken, file, false /*includeJSDoc*/))
-				nextTokenLine, _ := scanner.GetLineAndCharacterOfPosition(
+				nextTokenLine, _ := scanner.GetECMALineAndCharacterOfPosition(
 					file,
 					scanner.GetRangeOfTokenAtPosition(file, lastToken.End()).Pos())
 				// Avoid counting missing semicolon in single-line objects:
@@ -669,32 +669,6 @@ func isImplementationExpression(node *ast.Node) bool {
 	default:
 		return false
 	}
-}
-
-func isArrayLiteralOrObjectLiteralDestructuringPattern(node *ast.Node) bool {
-	if node.Kind == ast.KindArrayLiteralExpression || node.Kind == ast.KindObjectLiteralExpression {
-		// [a,b,c] from:
-		// [a, b, c] = someExpression;
-		if node.Parent.Kind == ast.KindBinaryExpression && node.Parent.AsBinaryExpression().Left == node && node.Parent.AsBinaryExpression().OperatorToken.Kind == ast.KindEqualsToken {
-			return true
-		}
-
-		// [a, b, c] from:
-		// for([a, b, c] of expression)
-		if node.Parent.Kind == ast.KindForOfStatement && node.Parent.AsForInOrOfStatement().Initializer == node {
-			return true
-		}
-
-		// [a, b, c] of
-		// [x, [a, b, c] ] = someExpression
-		// or
-		// {x, a: {a, b, c} } = someExpression
-		if isArrayLiteralOrObjectLiteralDestructuringPattern(core.IfElse(node.Parent.Kind == ast.KindPropertyAssignment, node.Parent.Parent, node.Parent)) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func isReadonlyTypeOperator(node *ast.Node) bool {
@@ -1259,14 +1233,14 @@ func getAdjustedLocationForExportDeclaration(node *ast.ExportDeclaration, forRen
 
 func getMeaningFromLocation(node *ast.Node) ast.SemanticMeaning {
 	// todo: check if this function needs to be changed for jsdoc updates
-
 	node = getAdjustedLocation(node, false /*forRename*/, nil)
 	parent := node.Parent
-	if node.Kind == ast.KindSourceFile {
+	switch {
+	case ast.IsSourceFile(node):
 		return ast.SemanticMeaningValue
-	} else if ast.NodeKindIs(node, ast.KindExportAssignment, ast.KindExportSpecifier, ast.KindExternalModuleReference, ast.KindImportSpecifier, ast.KindImportClause) || parent.Kind == ast.KindImportEqualsDeclaration && node == parent.Name() {
+	case ast.NodeKindIs(node, ast.KindExportAssignment, ast.KindExportSpecifier, ast.KindExternalModuleReference, ast.KindImportSpecifier, ast.KindImportClause) || parent.Kind == ast.KindImportEqualsDeclaration && node == parent.Name():
 		return ast.SemanticMeaningAll
-	} else if isInRightSideOfInternalImportEqualsDeclaration(node) {
+	case isInRightSideOfInternalImportEqualsDeclaration(node):
 		//     import a = |b|; // Namespace
 		//     import a = |b.c|; // Value, type, namespace
 		//     import a = |b.c|.d; // Namespace
@@ -1278,22 +1252,20 @@ func getMeaningFromLocation(node *ast.Node) ast.SemanticMeaning {
 			return ast.SemanticMeaningNamespace
 		}
 		return ast.SemanticMeaningAll
-	} else if ast.IsDeclarationName(node) {
+	case ast.IsDeclarationName(node):
 		return getMeaningFromDeclaration(parent)
-	} else if ast.IsEntityName(node) && ast.FindAncestor(node, func(*ast.Node) bool {
-		return node.Kind == ast.KindJSDocNameReference || ast.IsJSDocLinkLike(node) || node.Kind == ast.KindJSDocMemberName
-	}) != nil {
+	case ast.IsEntityName(node) && ast.IsJSDocNameReferenceContext(node):
 		return ast.SemanticMeaningAll
-	} else if isTypeReference(node) {
+	case isTypeReference(node):
 		return ast.SemanticMeaningType
-	} else if isNamespaceReference(node) {
+	case isNamespaceReference(node):
 		return ast.SemanticMeaningNamespace
-	} else if parent.Kind == ast.KindTypeParameter {
+	case ast.IsTypeParameterDeclaration(parent):
 		return ast.SemanticMeaningType
-	} else if parent.Kind == ast.KindLiteralType {
+	case ast.IsLiteralTypeNode(parent):
 		// This might be T["name"], which is actually referencing a property and not a type. So allow both meanings.
 		return ast.SemanticMeaningType | ast.SemanticMeaningValue
-	} else {
+	default:
 		return ast.SemanticMeaningValue
 	}
 }
