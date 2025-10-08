@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/microsoft/typescript-go/internal/collections"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/tspath"
 )
 
@@ -315,6 +316,14 @@ func (options *CompilerOptions) GetEffectiveTypeRoots(currentDirectory string) (
 		}
 	}
 
+	nmTypes, nmFromConfig := options.GetNodeModulesTypeRoots(baseDir)
+
+	typeRoots, nmFromConfig := pnp.AppendPnpTypeRoots(nmTypes, baseDir, nmFromConfig)
+
+	return typeRoots, nmFromConfig
+}
+
+func (options *CompilerOptions) GetNodeModulesTypeRoots(baseDir string) (result []string, fromConfig bool) {
 	typeRoots := make([]string, 0, strings.Count(baseDir, "/"))
 	tspath.ForEachAncestorDirectory(baseDir, func(dir string) (any, bool) {
 		typeRoots = append(typeRoots, tspath.CombinePaths(dir, "node_modules", "@types"))

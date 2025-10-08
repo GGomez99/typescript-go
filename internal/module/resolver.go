@@ -11,6 +11,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
 	"github.com/microsoft/typescript-go/internal/packagejson"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/semver"
 	"github.com/microsoft/typescript-go/internal/tspath"
 )
@@ -475,7 +476,7 @@ func (r *resolutionState) resolveNodeLikeWorker() *ResolvedModule {
 		resolved := r.nodeLoadModuleByRelativeName(r.extensions, candidate, false, true)
 		return r.createResolvedModule(
 			resolved,
-			resolved != nil && strings.Contains(resolved.path, "/node_modules/"),
+			resolved != nil && (tspath.IsExternalLibraryImport(resolved.path)),
 		)
 	}
 	return r.createResolvedModule(nil, false)
@@ -914,6 +915,12 @@ func (r *resolutionState) loadModuleFromNearestNodeModulesDirectory(typesScopeOn
 }
 
 func (r *resolutionState) loadModuleFromNearestNodeModulesDirectoryWorker(ext extensions, mode core.ResolutionMode, typesScopeOnly bool) *resolved {
+	pnpApi := pnp.GetPnpApi(r.containingDirectory)
+	if pnpApi != nil {
+		// TODO: stop at global cache too?
+		return r.loadModuleFromImmediateNodeModulesDirectoryPnP(ext, r.containingDirectory, typesScopeOnly)
+	}
+
 	result, _ := tspath.ForEachAncestorDirectory(
 		r.containingDirectory,
 		func(directory string) (result *resolved, stop bool) {
@@ -953,11 +960,52 @@ func (r *resolutionState) loadModuleFromImmediateNodeModulesDirectory(extensions
 	return continueSearching()
 }
 
+/*
+With Plug and Play, we directly resolve the path of the moduleName using the PnP API, instead of searching for it in the node_modules directory
+
+See github.com/microsoft/typescript-go/internal/pnp package for more details
+*/
+func (r *resolutionState) loadModuleFromImmediateNodeModulesDirectoryPnP(extensions extensions, directory string, typesScopeOnly bool) *resolved {
+	if !typesScopeOnly {
+		if packageResult := r.loadModuleFromPnpResolution(extensions, r.name, directory); !packageResult.shouldContinueSearching() {
+			return packageResult
+		}
+	}
+
+	if extensions&extensionsDeclaration != 0 {
+		result := r.loadModuleFromPnpResolution(extensionsDeclaration, "@types/"+r.mangleScopedPackageName(r.name), directory)
+
+		return result
+	}
+
+	return nil
+}
+
+func (r *resolutionState) loadModuleFromPnpResolution(ext extensions, moduleName string, issuer string) *resolved {
+	pnpApi := pnp.GetPnpApi(issuer)
+
+	if pnpApi != nil {
+		packageName, rest := ParsePackageName(moduleName)
+		// TODO: bubble up yarn resolution errors, instead of _
+		packageDirectory, _ := pnpApi.ResolveToUnqualified(packageName, issuer)
+		if packageDirectory != "" {
+			candidate := tspath.NormalizePath(tspath.CombinePaths(packageDirectory, rest))
+			return r.loadModuleFromSpecificNodeModulesDirectoryImpl(ext, true /* nodeModulesDirectoryExists */, candidate, rest, packageDirectory)
+		}
+	}
+
+	return nil
+}
+
 func (r *resolutionState) loadModuleFromSpecificNodeModulesDirectory(ext extensions, moduleName string, nodeModulesDirectory string, nodeModulesDirectoryExists bool) *resolved {
 	candidate := tspath.NormalizePath(tspath.CombinePaths(nodeModulesDirectory, moduleName))
 	packageName, rest := ParsePackageName(moduleName)
 	packageDirectory := tspath.CombinePaths(nodeModulesDirectory, packageName)
 
+	return r.loadModuleFromSpecificNodeModulesDirectoryImpl(ext, nodeModulesDirectoryExists, candidate, rest, packageDirectory)
+}
+
+func (r *resolutionState) loadModuleFromSpecificNodeModulesDirectoryImpl(ext extensions, nodeModulesDirectoryExists bool, candidate string, rest string, packageDirectory string) *resolved {
 	var rootPackageInfo *packagejson.InfoCacheEntry
 	// First look for a nested package.json, as in `node_modules/foo/bar/package.json`
 	packageInfo := r.getPackageJsonInfo(candidate, !nodeModulesDirectoryExists)
@@ -1036,7 +1084,7 @@ func (r *resolutionState) loadModuleFromSpecificNodeModulesDirectory(ext extensi
 }
 
 func (r *resolutionState) createResolvedModuleHandlingSymlink(resolved *resolved) *ResolvedModule {
-	isExternalLibraryImport := resolved != nil && strings.Contains(resolved.path, "/node_modules/")
+	isExternalLibraryImport := resolved != nil && (tspath.IsExternalLibraryImport(resolved.path))
 	if r.compilerOptions.PreserveSymlinks != core.TSTrue &&
 		isExternalLibraryImport &&
 		resolved.originalPath == "" &&
@@ -1084,7 +1132,7 @@ func (r *resolutionState) createResolvedTypeReferenceDirective(resolved *resolve
 		resolvedTypeReferenceDirective.ResolvedFileName = resolved.path
 		resolvedTypeReferenceDirective.Primary = primary
 		resolvedTypeReferenceDirective.PackageId = resolved.packageId
-		resolvedTypeReferenceDirective.IsExternalLibraryImport = strings.Contains(resolved.path, "/node_modules/")
+		resolvedTypeReferenceDirective.IsExternalLibraryImport = tspath.IsExternalLibraryImport(resolved.path)
 
 		if r.compilerOptions.PreserveSymlinks != core.TSTrue {
 			originalPath, resolvedFileName := r.getOriginalAndResolvedFileName(resolved.path)
@@ -1739,8 +1787,20 @@ func (r *resolutionState) readPackageJsonPeerDependencies(packageJsonInfo *packa
 	}
 	nodeModules := packageDirectory[:nodeModulesIndex+len("/node_modules")] + "/"
 	builder := strings.Builder{}
+	// TODO: find an example that needs this change
+	pnpApi := pnp.GetPnpApi(packageJsonInfo.PackageDirectory)
 	for name := range peerDependencies.Value {
-		peerPackageJson := r.getPackageJsonInfo(nodeModules+name /*onlyRecordFailures*/, false)
+		var peerDependencyPath string
+
+		if pnpApi != nil {
+			peerDependencyPath, _ = pnpApi.ResolveToUnqualified(name, packageDirectory)
+		}
+
+		if peerDependencyPath == "" {
+			peerDependencyPath = nodeModules + name
+		}
+
+		peerPackageJson := r.getPackageJsonInfo(peerDependencyPath, false /*onlyRecordFailures*/)
 		if peerPackageJson != nil {
 			version := peerPackageJson.Contents.Version.Value
 			builder.WriteString("+")

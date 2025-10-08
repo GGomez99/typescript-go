@@ -14,7 +14,7 @@ import (
 type DocumentUri string // !!!
 
 func (uri DocumentUri) FileName() string {
-	if strings.HasPrefix(string(uri), "file://") {
+	if strings.HasPrefix(string(uri), "file://") || strings.HasPrefix(string(uri), "zip:") {
 		parsed := core.Must(url.Parse(string(uri)))
 		if parsed.Host != "" {
 			return "//" + parsed.Host + parsed.Path
@@ -23,7 +23,6 @@ func (uri DocumentUri) FileName() string {
 	}
 
 	// Leave all other URIs escaped so we can round-trip them.
-
 	scheme, path, ok := strings.Cut(string(uri), ":")
 	if !ok {
 		panic(fmt.Sprintf("invalid URI: %s", uri))
