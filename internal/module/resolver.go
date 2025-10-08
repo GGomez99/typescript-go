@@ -476,7 +476,7 @@ func (r *resolutionState) resolveNodeLikeWorker() *ResolvedModule {
 		resolved := r.nodeLoadModuleByRelativeName(r.extensions, candidate, false, true)
 		return r.createResolvedModule(
 			resolved,
-			resolved != nil && (strings.Contains(resolved.path, "/node_modules/") || pnp.IsPnpVirtualPath(resolved.path)),
+			resolved != nil && (tspath.IsExternalLibraryImport(resolved.path)),
 		)
 	}
 	return r.createResolvedModule(nil, false)
@@ -960,6 +960,11 @@ func (r *resolutionState) loadModuleFromImmediateNodeModulesDirectory(extensions
 	return continueSearching()
 }
 
+/*
+With Plug and Play, we directly resolve the path of the moduleName using the PnP API, instead of searching for it in the node_modules directory
+
+See github.com/microsoft/typescript-go/internal/pnp package for more details
+*/
 func (r *resolutionState) loadModuleFromImmediateNodeModulesDirectoryPnP(extensions extensions, directory string, typesScopeOnly bool) *resolved {
 	if !typesScopeOnly {
 		if packageResult := r.loadModuleFromPnpResolution(extensions, r.name, directory); !packageResult.shouldContinueSearching() {
@@ -1079,7 +1084,7 @@ func (r *resolutionState) loadModuleFromSpecificNodeModulesDirectoryImpl(ext ext
 }
 
 func (r *resolutionState) createResolvedModuleHandlingSymlink(resolved *resolved) *ResolvedModule {
-	isExternalLibraryImport := resolved != nil && (strings.Contains(resolved.path, "/node_modules/") || pnp.IsPnpVirtualPath(resolved.path))
+	isExternalLibraryImport := resolved != nil && (tspath.IsExternalLibraryImport(resolved.path))
 	if r.compilerOptions.PreserveSymlinks != core.TSTrue &&
 		isExternalLibraryImport &&
 		resolved.originalPath == "" &&
@@ -1127,7 +1132,7 @@ func (r *resolutionState) createResolvedTypeReferenceDirective(resolved *resolve
 		resolvedTypeReferenceDirective.ResolvedFileName = resolved.path
 		resolvedTypeReferenceDirective.Primary = primary
 		resolvedTypeReferenceDirective.PackageId = resolved.packageId
-		resolvedTypeReferenceDirective.IsExternalLibraryImport = strings.Contains(resolved.path, "/node_modules/") || pnp.IsPnpVirtualPath(resolved.path)
+		resolvedTypeReferenceDirective.IsExternalLibraryImport = tspath.IsExternalLibraryImport(resolved.path)
 
 		if r.compilerOptions.PreserveSymlinks != core.TSTrue {
 			originalPath, resolvedFileName := r.getOriginalAndResolvedFileName(resolved.path)

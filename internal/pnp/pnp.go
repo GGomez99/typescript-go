@@ -1,7 +1,6 @@
 package pnp
 
 import (
-	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -47,13 +46,6 @@ func GetPnpApi(filePath string) *PnpApi {
 
 	isPnpApiInitialized.Store(1)
 	return cachedPnpApi
-}
-
-// Checks for `IsFromExternalLibrary“ only look at the presence of `/node_modules/` in the path,
-// but some virtual pnp packages don't have this folder, while they should still be considered external libraries
-// This function is used whenever `IsFromExternalLibrary` is evaluated
-func IsPnpVirtualPath(path string) bool {
-	return strings.Contains(path, "/__virtual__/")
 }
 
 func IsInPnpModule(fromFileName string, toFileName string) bool {

@@ -204,6 +204,8 @@ func (pnpFS *pnpFS) deleteOldestReader() {
 	}
 }
 
+// Virtual paths are used to make different paths resolve to the same real file or folder, which is necessary in some cases when PnP is enabled
+// See https://yarnpkg.com/advanced/lexicon#virtual-package and https://yarnpkg.com/advanced/pnpapi#resolvevirtual for more details
 func resolveVirtual(path string) (realPath string, hash string, basePath string) {
 	idx := strings.Index(path, "/__virtual__/")
 	if idx == -1 {
