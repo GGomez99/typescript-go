@@ -67,3 +67,21 @@ func IsInPnpModule(fromFileName string, toFileName string) bool {
 	// The targeted filename is in a pnp module different from the requesting filename
 	return fromLocator != nil && toLocator != nil && fromLocator.Name != toLocator.Name
 }
+
+func AppendPnpTypeRoots(nmTypes []string, baseDir string, nmFromConfig bool) ([]string, bool) {
+	pnpTypes := []string{}
+	pnpApi := GetPnpApi(baseDir)
+	if pnpApi != nil {
+		pnpTypes = pnpApi.GetPnpTypeRoots(baseDir)
+	}
+
+	if len(nmTypes) > 0 {
+		return append(nmTypes, pnpTypes...), nmFromConfig
+	}
+
+	if len(pnpTypes) > 0 {
+		return pnpTypes, false
+	}
+
+	return nil, false
+}

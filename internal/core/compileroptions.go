@@ -318,21 +318,9 @@ func (options *CompilerOptions) GetEffectiveTypeRoots(currentDirectory string) (
 
 	nmTypes, nmFromConfig := options.GetNodeModulesTypeRoots(baseDir)
 
-	pnpTypes := []string{}
-	pnpApi := pnp.GetPnpApi(baseDir)
-	if pnpApi != nil {
-		pnpTypes = pnpApi.GetPnpTypeRoots(baseDir)
-	}
+	typeRoots, nmFromConfig := pnp.AppendPnpTypeRoots(nmTypes, baseDir, nmFromConfig)
 
-	if len(nmTypes) > 0 {
-		return append(nmTypes, pnpTypes...), nmFromConfig
-	}
-
-	if len(pnpTypes) > 0 {
-		return pnpTypes, false
-	}
-
-	return nil, false
+	return typeRoots, nmFromConfig
 }
 
 func (options *CompilerOptions) GetNodeModulesTypeRoots(baseDir string) (result []string, fromConfig bool) {
