@@ -40,12 +40,11 @@ func runLSP(args []string) int {
 		defer profileSession.Stop()
 	}
 
+	var fs vfs.FS = osvfs.FS()
+
 	pnpApi := pnp.GetPnpApi(core.Must(os.Getwd()))
-	var fs vfs.FS
 	if pnpApi != nil {
-		fs = pnpvfs.From(osvfs.FS())
-	} else {
-		fs = osvfs.FS()
+		fs = pnpvfs.From(fs)
 	}
 
 	defaultLibraryPath := bundled.LibPath()

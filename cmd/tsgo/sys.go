@@ -68,12 +68,11 @@ func newSystem() *osSys {
 		os.Exit(int(tsc.ExitStatusInvalidProject_OutputsSkipped))
 	}
 
+	var fs vfs.FS = osvfs.FS()
+
 	pnpApi := pnp.GetPnpApi(tspath.NormalizePath(cwd))
-	var fs vfs.FS
 	if pnpApi != nil {
-		fs = pnpvfs.From(osvfs.FS())
-	} else {
-		fs = osvfs.FS()
+		fs = pnpvfs.From(fs)
 	}
 
 	return &osSys{

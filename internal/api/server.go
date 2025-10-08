@@ -95,12 +95,11 @@ func NewServer(options *ServerOptions) *Server {
 		panic("Cwd is required")
 	}
 
+	var fs vfs.FS = osvfs.FS()
+
 	pnpApi := pnp.GetPnpApi(options.Cwd)
-	var fs vfs.FS
 	if pnpApi != nil {
-		fs = pnpvfs.From(osvfs.FS())
-	} else {
-		fs = osvfs.FS()
+		fs = pnpvfs.From(fs)
 	}
 
 	server := &Server{
