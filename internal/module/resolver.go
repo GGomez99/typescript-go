@@ -1781,7 +1781,11 @@ func (r *resolutionState) readPackageJsonPeerDependencies(packageJsonInfo *packa
 		r.tracer.write(diagnostics.X_package_json_has_a_peerDependencies_field.Message())
 	}
 	packageDirectory := r.realPath(packageJsonInfo.PackageDirectory)
-	nodeModules := packageDirectory[:strings.LastIndex(packageDirectory, "/node_modules")+len("/node_modules")] + "/"
+	nodeModulesIndex := strings.LastIndex(packageDirectory, "/node_modules")
+	if nodeModulesIndex == -1 {
+		return ""
+	}
+	nodeModules := packageDirectory[:nodeModulesIndex+len("/node_modules")] + "/"
 	builder := strings.Builder{}
 	// TODO: find an example that needs this change
 	pnpApi := pnp.GetPnpApi(packageJsonInfo.PackageDirectory)
