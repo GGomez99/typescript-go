@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
 	"github.com/microsoft/typescript-go/internal/vfs/pnpvfs"
 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
@@ -76,9 +77,11 @@ func TestPnpVfs_ZipFileDetection(t *testing.T) {
 	assert.Assert(t, fs.FileExists(zipPath))
 
 	zipInternalPath := zipPath + "/src/index.ts"
+	assert.Assert(t, fs.FileExists(zipInternalPath))
 
-	_ = fs.FileExists(zipInternalPath)
-	_, _ = fs.ReadFile(zipInternalPath)
+	content, ok := fs.ReadFile(zipInternalPath)
+	assert.Assert(t, ok)
+	assert.Equal(t, content, zipFiles["src/index.ts"])
 }
 
 func TestPnpVfs_ErrorHandling(t *testing.T) {
@@ -110,7 +113,8 @@ func TestPnpVfs_CaseSensitivity(t *testing.T) {
 	sensitiveFS := pnpvfs.From(vfstest.FromMap(map[string]string{}, true))
 	assert.Assert(t, sensitiveFS.UseCaseSensitiveFileNames())
 	insensitiveFS := pnpvfs.From(vfstest.FromMap(map[string]string{}, false))
-	assert.Assert(t, !insensitiveFS.UseCaseSensitiveFileNames())
+	// pnpvfs is always case sensitive
+	assert.Assert(t, insensitiveFS.UseCaseSensitiveFileNames())
 }
 
 func TestPnpVfs_FallbackToRegularFiles(t *testing.T) {
@@ -147,12 +151,9 @@ func TestZipPath_Detection(t *testing.T) {
 		{"/absolute/archive.zip/file.txt", true},
 	}
 
-	fs := pnpvfs.From(vfstest.FromMap(map[string]string{}, true))
-
 	for _, tc := range testCases {
 		t.Run(tc.path, func(t *testing.T) {
-			_ = fs.FileExists(tc.path)
-			_, _ = fs.ReadFile(tc.path)
+			assert.Assert(t, tspath.IsZipPath(tc.path) == tc.shouldBeZip)
 		})
 	}
 }
@@ -174,14 +175,25 @@ func TestPnpVfs_RealZipIntegration(t *testing.T) {
 
 	indexPath := zipPath + "/src/index.ts"
 	packagePath := zipPath + "/package.json"
-	_ = fs.FileExists(indexPath)
-	_ = fs.FileExists(packagePath)
-	_ = fs.DirectoryExists(zipPath + "/src")
+	assert.Assert(t, fs.FileExists(indexPath))
+	assert.Assert(t, fs.FileExists(packagePath))
+	assert.Assert(t, fs.DirectoryExists(zipPath+"/src"))
 
-	_, _ = fs.ReadFile(indexPath)
-	_, _ = fs.ReadFile(packagePath)
+	content, ok := fs.ReadFile(indexPath)
+	assert.Assert(t, ok)
+	assert.Equal(t, content, zipFiles["src/index.ts"])
 
-	_ = fs.GetAccessibleEntries(zipPath)
-	_ = fs.GetAccessibleEntries(zipPath + "/src")
-	_ = fs.Realpath(indexPath)
+	content, ok = fs.ReadFile(packagePath)
+	assert.Assert(t, ok)
+	assert.Equal(t, content, zipFiles["package.json"])
+
+	entries := fs.GetAccessibleEntries(zipPath)
+	assert.DeepEqual(t, entries.Files, []string{zipPath + "/package.json", zipPath + "/tsconfig.json"})
+	assert.DeepEqual(t, entries.Directories, []string{zipPath + "/src"})
+
+	entries = fs.GetAccessibleEntries(zipPath + "/src")
+	assert.DeepEqual(t, entries.Files, []string{zipPath + "/src/index.ts"})
+	assert.DeepEqual(t, entries.Directories, []string{zipPath + "/src/utils"})
+
+	assert.Equal(t, fs.Realpath(indexPath), indexPath)
 }

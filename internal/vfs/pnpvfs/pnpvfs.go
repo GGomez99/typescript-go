@@ -70,12 +70,12 @@ func (pnpFS *pnpFS) GetAccessibleEntries(path string) vfs.Entries {
 	entries := fs.GetAccessibleEntries(formattedPath)
 
 	for i, dir := range entries.Directories {
-		fullPath := filepath.Join(zipPath, dir)
+		fullPath := filepath.Join(zipPath, formattedPath, dir)
 		entries.Directories[i] = makeVirtualPath(basePath, hash, fullPath)
 	}
 
 	for i, file := range entries.Files {
-		fullPath := filepath.Join(zipPath, file)
+		fullPath := filepath.Join(zipPath, formattedPath, file)
 		entries.Files[i] = makeVirtualPath(basePath, hash, fullPath)
 	}
 
