@@ -20,11 +20,13 @@ import (
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/ls"
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/project/ata"
 	"github.com/microsoft/typescript-go/internal/project/logging"
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
+	"github.com/microsoft/typescript-go/internal/vfs/pnpvfs"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/text/language"
 )
@@ -670,6 +672,13 @@ func (s *Server) handleInitialized(ctx context.Context, params *lsproto.Initiali
 		cwd = s.cwd
 	}
 
+	pnpApi := pnp.GetPnpApi(cwd)
+
+	fs := s.fs
+	if pnpApi != nil {
+		fs = pnpvfs.From(fs)
+	}
+
 	s.session = project.NewSession(&project.SessionInit{
 		Options: &project.SessionOptions{
 			CurrentDirectory:   cwd,
@@ -680,7 +689,7 @@ func (s *Server) handleInitialized(ctx context.Context, params *lsproto.Initiali
 			LoggingEnabled:     true,
 			DebounceDelay:      500 * time.Millisecond,
 		},
-		FS:          s.fs,
+		FS:          fs,
 		Logger:      s.logger,
 		Client:      s,
 		NpmExecutor: s,
