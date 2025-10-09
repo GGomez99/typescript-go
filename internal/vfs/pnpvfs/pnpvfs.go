@@ -32,7 +32,7 @@ var _ vfs.FS = (*pnpFS)(nil)
 func From(fs vfs.FS) *pnpFS {
 	pnpFS := &pnpFS{
 		fs:                  fs,
-		maxOpenReaders:      80,
+		maxOpenReaders:      80, // Max number of zip files that can be open at the same time
 		cachedZipReadersMap: make(map[string]*cachedZipReader),
 		cacheReaderMutex:    sync.Mutex{},
 	}
@@ -136,7 +136,11 @@ func (pnpFS *pnpFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
 func (pnpFS *pnpFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
 	path, _, _ = resolveVirtual(path)
 
-	fs, formattedPath, _ := getMatchingFS(pnpFS, path)
+	fs, formattedPath, zipPath := getMatchingFS(pnpFS, path)
+	if zipPath != "" {
+		panic("cannot write to zip file")
+	}
+
 	return fs.WriteFile(formattedPath, data, writeByteOrderMark)
 }
 
