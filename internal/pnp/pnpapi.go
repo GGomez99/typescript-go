@@ -126,7 +126,7 @@ func (p *PnpApi) findClosestPnpManifest() (*PnpManifestData, error) {
 		}
 
 		directoryPath = path.Dir(directoryPath)
-		if directoryPath == "/" {
+		if tspath.IsDiskPathRoot(directoryPath) {
 			return nil, fmt.Errorf("no PnP manifest found")
 		}
 	}
