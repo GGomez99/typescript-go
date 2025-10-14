@@ -109,6 +109,10 @@ func parseManifestFromPath(manifestDir string) (*PnpManifestData, error) {
 		pnpDataString = b.String()
 	}
 
+	return parseManifestFromData(pnpDataString, manifestDir)
+}
+
+func parseManifestFromData(pnpDataString string, manifestDir string) (*PnpManifestData, error) {
 	var rawData map[string]interface{}
 	if err := json.Unmarshal([]byte(pnpDataString), &rawData); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON PnP data: %w", err)

@@ -23,6 +23,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/outputpaths"
 	"github.com/microsoft/typescript-go/internal/parser"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/repo"
 	"github.com/microsoft/typescript-go/internal/sourcemap"
 	"github.com/microsoft/typescript-go/internal/testutil"
@@ -207,6 +208,11 @@ func CompileFilesEx(
 	fs := vfstest.FromMap(testfs, harnessOptions.UseCaseSensitiveFileNames)
 	fs = bundled.WrapFS(fs)
 	fs = NewOutputRecorderFS(fs)
+
+	manifestData, _ := fs.ReadFile("/.pnp.data.json")
+	// Instantiate a unique PnP API per goroutine, or disable PnP if no manifestData found
+	pnp.OverridePnpApi(manifestData)
+	defer pnp.ClearTestPnpCache()
 
 	host := createCompilerHost(fs, bundled.LibPath(), currentDirectory)
 	var configFile *tsoptions.TsConfigSourceFile
