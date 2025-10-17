@@ -14,16 +14,9 @@ import (
 	"github.com/microsoft/typescript-go/internal/vfs/iovfs"
 )
 
-type cachedZipReader struct {
-	reader   *zip.ReadCloser
-	lastUsed time.Time
-	zipMTime time.Time
-}
-
 type pnpFS struct {
 	fs                  vfs.FS
-	maxOpenReaders      int
-	cachedZipReadersMap map[string]*cachedZipReader
+	cachedZipReadersMap map[string]*zip.ReadCloser
 	cacheReaderMutex    sync.Mutex
 }
 
@@ -32,8 +25,7 @@ var _ vfs.FS = (*pnpFS)(nil)
 func From(fs vfs.FS) *pnpFS {
 	pnpFS := &pnpFS{
 		fs:                  fs,
-		maxOpenReaders:      80, // Max number of zip files that can be open at the same time
-		cachedZipReadersMap: make(map[string]*cachedZipReader),
+		cachedZipReadersMap: make(map[string]*zip.ReadCloser),
 		cacheReaderMutex:    sync.Mutex{},
 	}
 
@@ -164,16 +156,13 @@ func getMatchingFS(pnpFS *pnpFS, path string) (vfs.FS, string, string) {
 		return pnpFS.fs, path, ""
 	}
 
-	var usedReader *cachedZipReader
+	var usedReader *zip.ReadCloser
 
 	pnpFS.cacheReaderMutex.Lock()
 	defer pnpFS.cacheReaderMutex.Unlock()
 
-	zipMTime := zipStat.ModTime()
-
 	cachedReader, ok := pnpFS.cachedZipReadersMap[zipPath]
-	if ok && cachedReader.zipMTime.Equal(zipMTime) {
-		cachedReader.lastUsed = time.Now()
+	if ok {
 		usedReader = cachedReader
 	} else {
 		zipReader, err := zip.OpenReader(zipPath)
@@ -181,31 +170,11 @@ func getMatchingFS(pnpFS *pnpFS, path string) (vfs.FS, string, string) {
 			return pnpFS.fs, path, ""
 		}
 
-		if len(pnpFS.cachedZipReadersMap) >= pnpFS.maxOpenReaders {
-			pnpFS.deleteOldestReader()
-		}
-
-		usedReader = &cachedZipReader{reader: zipReader, lastUsed: time.Now(), zipMTime: zipMTime}
+		usedReader = zipReader
 		pnpFS.cachedZipReadersMap[zipPath] = usedReader
 	}
 
-	return iovfs.From(usedReader.reader, pnpFS.fs.UseCaseSensitiveFileNames()), internalPath, zipPath
-}
-
-func (pnpFS *pnpFS) deleteOldestReader() {
-	var oldestReader *cachedZipReader
-	var oldestReaderPath string
-	for path, reader := range pnpFS.cachedZipReadersMap {
-		if oldestReader == nil || reader.lastUsed.Before(oldestReader.lastUsed) {
-			oldestReader = reader
-			oldestReaderPath = path
-		}
-	}
-
-	if oldestReader != nil {
-		oldestReader.reader.Close()
-		delete(pnpFS.cachedZipReadersMap, oldestReaderPath)
-	}
+	return iovfs.From(usedReader, pnpFS.fs.UseCaseSensitiveFileNames()), internalPath, zipPath
 }
 
 // Virtual paths are used to make different paths resolve to the same real file or folder, which is necessary in some cases when PnP is enabled
