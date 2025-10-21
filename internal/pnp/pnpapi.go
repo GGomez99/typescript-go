@@ -166,23 +166,30 @@ func (p *PnpApi) FindLocator(parentPath string) (*Locator, error) {
 		relativePathWithDot = "./" + relativePath
 	}
 
+	var bestLength int
+	var bestLocator *Locator
 	pathSegments := strings.Split(relativePathWithDot, "/")
 	currentTrie := p.manifest.packageRegistryTrie
 
 	// Go down the trie, looking for the latest defined packageInfo that matches the path
-	for _, segment := range pathSegments {
-		if currentTrie.childrenPathSegments[segment] == nil {
+	for index, segment := range pathSegments {
+		currentTrie = currentTrie.childrenPathSegments[segment]
+
+		if currentTrie == nil || currentTrie.childrenPathSegments == nil {
 			break
 		}
 
-		currentTrie = currentTrie.childrenPathSegments[segment]
+		if currentTrie.packageData != nil && index >= bestLength {
+			bestLength = index
+			bestLocator = &Locator{Name: currentTrie.packageData.ident, Reference: currentTrie.packageData.reference}
+		}
 	}
 
-	if currentTrie.packageData == nil {
+	if bestLocator == nil {
 		return nil, fmt.Errorf("no package found for path %s", relativePath)
 	}
 
-	return &Locator{Name: currentTrie.packageData.ident, Reference: currentTrie.packageData.reference}, nil
+	return bestLocator, nil
 }
 
 func (p *PnpApi) ResolveViaFallback(name string) *PackageDependency {
