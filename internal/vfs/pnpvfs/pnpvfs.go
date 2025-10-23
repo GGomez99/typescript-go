@@ -3,7 +3,6 @@ package pnpvfs
 import (
 	"archive/zip"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,7 +25,6 @@ func From(fs vfs.FS) *pnpFS {
 	pnpFS := &pnpFS{
 		fs:                  fs,
 		cachedZipReadersMap: make(map[string]*zip.ReadCloser),
-		cacheReaderMutex:    sync.Mutex{},
 	}
 
 	return pnpFS
@@ -62,12 +60,12 @@ func (pnpFS *pnpFS) GetAccessibleEntries(path string) vfs.Entries {
 	entries := fs.GetAccessibleEntries(formattedPath)
 
 	for i, dir := range entries.Directories {
-		fullPath := filepath.Join(zipPath, formattedPath, dir)
+		fullPath := tspath.CombinePaths(zipPath, formattedPath, dir)
 		entries.Directories[i] = makeVirtualPath(basePath, hash, fullPath)
 	}
 
 	for i, file := range entries.Files {
-		fullPath := filepath.Join(zipPath, formattedPath, file)
+		fullPath := tspath.CombinePaths(zipPath, formattedPath, file)
 		entries.Files[i] = makeVirtualPath(basePath, hash, fullPath)
 	}
 
@@ -92,7 +90,7 @@ func (pnpFS *pnpFS) Realpath(path string) string {
 	path, hash, basePath := resolveVirtual(path)
 
 	fs, formattedPath, zipPath := getMatchingFS(pnpFS, path)
-	fullPath := filepath.Join(zipPath, fs.Realpath(formattedPath))
+	fullPath := tspath.CombinePaths(zipPath, fs.Realpath(formattedPath))
 	return makeVirtualPath(basePath, hash, fullPath)
 }
 
@@ -120,7 +118,7 @@ func (pnpFS *pnpFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
 
 	fs, formattedPath, zipPath := getMatchingFS(pnpFS, root)
 	return fs.WalkDir(formattedPath, (func(path string, d vfs.DirEntry, err error) error {
-		fullPath := filepath.Join(zipPath, path)
+		fullPath := tspath.CombinePaths(zipPath, path)
 		return walkFn(makeVirtualPath(basePath, hash, fullPath), d, err)
 	}))
 }
@@ -204,14 +202,14 @@ func resolveVirtual(path string) (realPath string, hash string, basePath string)
 
 	// Apply dirname n times to base
 	for i := 0; i < depth; i++ {
-		base = filepath.Dir(base)
+		base = tspath.GetDirectoryPath(base)
 	}
 	// Join base and subpath
 	if base == "/" {
 		return "/" + subpath, hash, basePath
 	}
 
-	return filepath.Join(base, subpath), hash, basePath
+	return tspath.CombinePaths(base, subpath), hash, basePath
 }
 
 func makeVirtualPath(basePath string, hash string, targetPath string) string {
@@ -219,10 +217,10 @@ func makeVirtualPath(basePath string, hash string, targetPath string) string {
 		return targetPath
 	}
 
-	relativePath, err := filepath.Rel(path.Dir(basePath), targetPath)
-	if err != nil {
-		panic("Could not make virtual path: " + err.Error())
-	}
+	relativePath := tspath.GetRelativePathFromDirectory(
+		tspath.GetDirectoryPath(basePath),
+		targetPath,
+		tspath.ComparePathsOptions{UseCaseSensitiveFileNames: true})
 
 	segments := strings.Split(relativePath, "/")
 

@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 
 	"github.com/microsoft/typescript-go/internal/tspath"
@@ -113,7 +112,7 @@ func (p *PnpApi) ResolveToUnqualified(specifier string, parentPath string) (stri
 		dependencyPkg = p.GetPackage(&Locator{Name: referenceOrAlias.Ident, Reference: referenceOrAlias.Reference})
 	}
 
-	return filepath.Join(p.manifest.dirPath, dependencyPkg.PackageLocation, modulePath), nil
+	return tspath.CombinePaths(p.manifest.dirPath, dependencyPkg.PackageLocation, modulePath), nil
 }
 
 func (p *PnpApi) findClosestPnpManifest() (*PnpManifestData, error) {
@@ -143,10 +142,8 @@ func (p *PnpApi) GetPackage(locator *Locator) *PackageInfo {
 }
 
 func (p *PnpApi) FindLocator(parentPath string) (*Locator, error) {
-	relativePath, err := filepath.Rel(p.manifest.dirPath, parentPath)
-	if err != nil {
-		return nil, err
-	}
+	relativePath := tspath.GetRelativePathFromDirectory(p.manifest.dirPath, parentPath,
+		tspath.ComparePathsOptions{UseCaseSensitiveFileNames: true})
 
 	if p.manifest.ignorePatternData != nil {
 		match, err := p.manifest.ignorePatternData.MatchString(relativePath)
@@ -309,5 +306,5 @@ func (p *PnpApi) GetPackageLocationAbsolutePath(packageInfo *PackageInfo) string
 	}
 
 	packageLocation := packageInfo.PackageLocation
-	return filepath.Join(p.manifest.dirPath, packageLocation)
+	return tspath.CombinePaths(p.manifest.dirPath, packageLocation)
 }

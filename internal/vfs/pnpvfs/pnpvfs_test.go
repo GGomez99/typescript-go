@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,7 +20,7 @@ func createTestZip(t *testing.T, files map[string]string) string {
 	t.Helper()
 
 	tmpDir := t.TempDir()
-	zipPath := filepath.Join(tmpDir, "test.zip")
+	zipPath := tspath.CombinePaths(tmpDir, "test.zip")
 
 	file, err := os.Create(zipPath)
 	assert.NilError(t, err)
@@ -118,7 +117,7 @@ func TestPnpVfs_ErrorHandling(t *testing.T) {
 
 	t.Run("InvalidZipFile", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		fakePath := filepath.Join(tmpDir, "fake.zip")
+		fakePath := tspath.CombinePaths(tmpDir, "fake.zip")
 		err := os.WriteFile(fakePath, []byte("not a zip file"), 0o644)
 		assert.NilError(t, err)
 		result := fs.FileExists(fakePath + "/file.txt")
@@ -151,7 +150,7 @@ func TestPnpVfs_FallbackToRegularFiles(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
-	regularFile := filepath.Join(tmpDir, "regular.ts")
+	regularFile := tspath.CombinePaths(tmpDir, "regular.ts")
 	err := os.WriteFile(regularFile, []byte("regular content"), 0o644)
 	assert.NilError(t, err)
 
