@@ -1,4 +1,4 @@
-//// [tests/cases/compiler/simplePnpTest.ts] ////
+//// [tests/cases/compiler/pnpSimpleTest.ts] ////
 
 === /.yarn/cache/package-a-npm-1.0.0-abcd1234/node_modules/package-a/index.d.ts ===
 export declare function helperA(value: string): string;
