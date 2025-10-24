@@ -23,6 +23,7 @@ func (uri DocumentUri) FileName() string {
 	}
 
 	// Leave all other URIs escaped so we can round-trip them.
+
 	scheme, path, ok := strings.Cut(string(uri), ":")
 	if !ok {
 		panic(fmt.Sprintf("invalid URI: %s", uri))

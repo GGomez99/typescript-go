@@ -42,7 +42,6 @@ func runLSP(args []string) int {
 	}
 
 	fs := bundled.WrapFS(osvfs.FS())
-
 	defaultLibraryPath := bundled.LibPath()
 	typingsLocation := getGlobalTypingsCacheLocation()
 

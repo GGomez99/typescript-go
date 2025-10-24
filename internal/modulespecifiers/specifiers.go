@@ -273,10 +273,7 @@ func GetEachFileNameOfModule(
 		for _, p := range targets {
 			if !(shouldFilterIgnoredPaths && containsIgnoredPath(p)) {
 				results = append(results, ModulePath{
-					FileName: p,
-					// TODO: test this
-					// It impacts tagging external workspace dependencies as module dependencies, to trigger a module name resolver for
-					// import suggestions
+					FileName:        p,
 					IsInNodeModules: ContainsNodeModules(p) || pnp.IsInPnpModule(importingFileName, p),
 					IsRedirect:      referenceRedirect == p,
 				})
@@ -685,9 +682,7 @@ func tryGetModuleNameFromRootDirs(
 	return processEnding(shortest, allowedEndings, compilerOptions, host)
 }
 
-// TODO test this feature
-// Help to identify the feature to test: when you're adding a new symbol into the file, TS will suggest you to import it from another file.
-// To do that it'll map that other file path into an import path, and that's the function responsible for that.
+// TODO: This code partially duplicates tryGetModuleNameAsNodeModule, is it better to keep it isolated from the node module version or should we merge them?
 func tryGetModuleNameAsPnpPackage(
 	pathObj ModulePath,
 	info Info,
