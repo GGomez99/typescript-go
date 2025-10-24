@@ -669,9 +669,8 @@ func (s *Server) handleInitialized(ctx context.Context, params *lsproto.Initiali
 		cwd = s.cwd
 	}
 
-	pnpApi := pnp.GetPnpApi(cwd)
-
 	fs := s.fs
+	pnpApi := pnp.InitPnpApi(fs, cwd)
 	if pnpApi != nil {
 		fs = pnpvfs.From(fs)
 	}

@@ -11,7 +11,6 @@ package pnp
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"strings"
 
@@ -19,8 +18,16 @@ import (
 )
 
 type PnpApi struct {
+	fs       PnpApiFS
 	url      string
 	manifest *PnpManifestData
+}
+
+// FS abstraction used by the PnpApi to access the file system
+// We can't use the vfs.FS interface because it creates an import cycle: core -> pnp -> vfs -> core
+type PnpApiFS interface {
+	FileExists(path string) bool
+	ReadFile(path string) (contents string, ok bool)
 }
 
 func (p *PnpApi) RefreshManifest() error {
@@ -30,7 +37,7 @@ func (p *PnpApi) RefreshManifest() error {
 	if p.manifest == nil {
 		newData, err = p.findClosestPnpManifest()
 	} else {
-		newData, err = parseManifestFromPath(p.manifest.dirPath)
+		newData, err = parseManifestFromPath(p.fs, p.manifest.dirPath)
 	}
 
 	if err != nil {
@@ -120,8 +127,8 @@ func (p *PnpApi) findClosestPnpManifest() (*PnpManifestData, error) {
 
 	for {
 		pnpPath := path.Join(directoryPath, ".pnp.cjs")
-		if _, err := os.Stat(pnpPath); err == nil {
-			return parseManifestFromPath(directoryPath)
+		if p.fs.FileExists(pnpPath) {
+			return parseManifestFromPath(p.fs, directoryPath)
 		}
 
 		directoryPath = path.Dir(directoryPath)

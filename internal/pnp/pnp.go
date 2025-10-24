@@ -30,7 +30,7 @@ func getGoroutineID() int {
 
 // Sets the PnP API for the given manifest data and manifest directory, used for testing
 // This creates a goroutine-specific cache entry that won't interfere with other parallel tests.
-func OverridePnpApi(manifestDataRaw string) *PnpApi {
+func OverridePnpApi(fs PnpApiFS, manifestDataRaw string) *PnpApi {
 	if manifestDataRaw == "" {
 		return nil
 	}
@@ -42,6 +42,7 @@ func OverridePnpApi(manifestDataRaw string) *PnpApi {
 		pnpApi = nil
 	} else if manifestData != nil {
 		pnpApi = &PnpApi{
+			fs:       fs,
 			url:      "/",
 			manifest: manifestData,
 		}
@@ -61,7 +62,30 @@ func ClearTestPnpCache() {
 	testPnpCache.Delete(gid)
 }
 
-// GetPnpApi returns the PnP API for the given file path. Will return nil if the PnP API is not available.
+func InitPnpApi(fs PnpApiFS, filePath string) *PnpApi {
+	pnpMu.Lock()
+	defer pnpMu.Unlock()
+	// Double-check after acquiring lock
+	if isPnpApiInitialized.Load() == 1 {
+		return cachedPnpApi
+	}
+
+	pnpApi := &PnpApi{fs: fs, url: filePath}
+
+	manifestData, err := pnpApi.findClosestPnpManifest()
+	if err == nil {
+		pnpApi.manifest = manifestData
+		cachedPnpApi = pnpApi
+	} else {
+		// Couldn't load PnP API
+		cachedPnpApi = nil
+	}
+
+	isPnpApiInitialized.Store(1)
+	return cachedPnpApi
+}
+
+// GetPnpApi returns the PnP API for the given file path. Will return nil if the PnP API is not available or not initialized
 func GetPnpApi(filePath string) *PnpApi {
 	// If in a test, check for PnP API overrides
 	if testing.Testing() {
@@ -76,26 +100,7 @@ func GetPnpApi(filePath string) *PnpApi {
 		return cachedPnpApi
 	}
 
-	pnpMu.Lock()
-	defer pnpMu.Unlock()
-	// Double-check after acquiring lock
-	if isPnpApiInitialized.Load() == 1 {
-		return cachedPnpApi
-	}
-
-	pnpApi := &PnpApi{url: filePath}
-
-	manifestData, err := pnpApi.findClosestPnpManifest()
-	if err == nil {
-		pnpApi.manifest = manifestData
-		cachedPnpApi = pnpApi
-	} else {
-		// Couldn't load PnP API
-		cachedPnpApi = nil
-	}
-
-	isPnpApiInitialized.Store(1)
-	return cachedPnpApi
+	return nil
 }
 
 // Clears the singleton PnP API cache

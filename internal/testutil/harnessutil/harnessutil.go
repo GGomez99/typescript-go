@@ -211,7 +211,7 @@ func CompileFilesEx(
 
 	manifestData, _ := fs.ReadFile("/.pnp.data.json")
 	// Instantiate a unique PnP API per goroutine, or disable PnP if no manifestData found
-	pnp.OverridePnpApi(manifestData)
+	pnp.OverridePnpApi(fs, manifestData)
 	defer pnp.ClearTestPnpCache()
 
 	host := createCompilerHost(fs, bundled.LibPath(), currentDirectory)

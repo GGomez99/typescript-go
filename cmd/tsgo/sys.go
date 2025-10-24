@@ -70,7 +70,7 @@ func newSystem() *osSys {
 
 	var fs vfs.FS = osvfs.FS()
 
-	pnpApi := pnp.GetPnpApi(tspath.NormalizePath(cwd))
+	pnpApi := pnp.InitPnpApi(fs, tspath.NormalizePath(cwd))
 	if pnpApi != nil {
 		fs = pnpvfs.From(fs)
 	}

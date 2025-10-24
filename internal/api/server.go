@@ -97,7 +97,7 @@ func NewServer(options *ServerOptions) *Server {
 
 	var fs vfs.FS = osvfs.FS()
 
-	pnpApi := pnp.GetPnpApi(options.Cwd)
+	pnpApi := pnp.InitPnpApi(fs, options.Cwd)
 	if pnpApi != nil {
 		fs = pnpvfs.From(fs)
 	}
