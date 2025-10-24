@@ -201,7 +201,7 @@ func resolveVirtual(path string) (realPath string, hash string, basePath string)
 	basePath = path[:idx] + "/__virtual__"
 
 	// Apply dirname n times to base
-	for i := 0; i < depth; i++ {
+	for range depth {
 		base = tspath.GetDirectoryPath(base)
 	}
 	// Join base and subpath

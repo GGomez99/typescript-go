@@ -1,10 +1,11 @@
 package pnp
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
-	"path"
 	"strings"
+
+	"github.com/go-json-experiment/json"
 
 	"github.com/dlclark/regexp2"
 	"github.com/microsoft/typescript-go/internal/tspath"
@@ -76,33 +77,31 @@ type PnpManifestData struct {
 func parseManifestFromPath(fs PnpApiFS, manifestDir string) (*PnpManifestData, error) {
 	pnpDataString := ""
 
-	data, ok := fs.ReadFile(path.Join(manifestDir, ".pnp.data.json"))
+	data, ok := fs.ReadFile(tspath.CombinePaths(manifestDir, ".pnp.data.json"))
 	if ok {
-		pnpDataString = string(data)
+		pnpDataString = data
 	} else {
-		data, ok := fs.ReadFile(path.Join(manifestDir, ".pnp.cjs"))
+		pnpScriptString, ok := fs.ReadFile(tspath.CombinePaths(manifestDir, ".pnp.cjs"))
 		if !ok {
-			return nil, fmt.Errorf("failed to read .pnp.cjs file")
+			return nil, errors.New("failed to read .pnp.cjs file")
 		}
 
-		pnpString := string(data)
-
 		manifestRegex := regexp2.MustCompile(`(const[ \r\n]+RAW_RUNTIME_STATE[ \r\n]*=[ \r\n]*|hydrateRuntimeState\(JSON\.parse\()'`, regexp2.None)
-		matches, err := manifestRegex.FindStringMatch(pnpString)
+		matches, err := manifestRegex.FindStringMatch(pnpScriptString)
 		if err != nil || matches == nil {
-			return nil, fmt.Errorf("We failed to locate the PnP data payload inside its manifest file. Did you manually edit the file?")
+			return nil, errors.New("We failed to locate the PnP data payload inside its manifest file. Did you manually edit the file?")
 		}
 
 		start := matches.Index + matches.Length
 		var b strings.Builder
-		b.Grow(len(pnpString))
-		for i := start; i < len(pnpString); i++ {
-			if pnpString[i] == '\'' {
+		b.Grow(len(pnpScriptString))
+		for i := start; i < len(pnpScriptString); i++ {
+			if pnpScriptString[i] == '\'' {
 				break
 			}
 
-			if pnpString[i] != '\\' {
-				b.WriteByte(pnpString[i])
+			if pnpScriptString[i] != '\\' {
+				b.WriteByte(pnpScriptString[i])
 			}
 		}
 		pnpDataString = b.String()

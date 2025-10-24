@@ -10,8 +10,8 @@ package pnp
  */
 
 import (
+	"errors"
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/microsoft/typescript-go/internal/tspath"
@@ -50,7 +50,7 @@ func (p *PnpApi) RefreshManifest() error {
 
 func (p *PnpApi) ResolveToUnqualified(specifier string, parentPath string) (string, error) {
 	if p.manifest == nil {
-		panic(fmt.Errorf("ResolveToUnqualified called with no PnP manifest available"))
+		panic("ResolveToUnqualified called with no PnP manifest available")
 	}
 
 	ident, modulePath, err := p.ParseBareIdentifier(specifier)
@@ -126,14 +126,14 @@ func (p *PnpApi) findClosestPnpManifest() (*PnpManifestData, error) {
 	directoryPath := p.url
 
 	for {
-		pnpPath := path.Join(directoryPath, ".pnp.cjs")
+		pnpPath := tspath.CombinePaths(directoryPath, ".pnp.cjs")
 		if p.fs.FileExists(pnpPath) {
 			return parseManifestFromPath(p.fs, directoryPath)
 		}
 
-		directoryPath = path.Dir(directoryPath)
+		directoryPath = tspath.GetDirectoryPath(directoryPath)
 		if tspath.IsDiskPathRoot(directoryPath) {
-			return nil, fmt.Errorf("no PnP manifest found")
+			return nil, errors.New("no PnP manifest found")
 		}
 	}
 }
@@ -142,7 +142,7 @@ func (p *PnpApi) GetPackage(locator *Locator) *PackageInfo {
 	packageRegistryMap := p.manifest.packageRegistryMap
 	packageInfo, ok := packageRegistryMap[locator.Name][locator.Reference]
 	if !ok {
-		panic(fmt.Sprintf("%s should have an entry in the package registry", locator.Name))
+		panic(locator.Name + " should have an entry in the package registry")
 	}
 
 	return packageInfo
@@ -276,7 +276,9 @@ func (p *PnpApi) GetPnpTypeRoots(currentDirectory string) []string {
 	for _, dep := range packageDependencies {
 		if strings.HasPrefix(dep.Ident, "@types/") && dep.Reference != "" {
 			packageInfo := p.GetPackage(&Locator{Name: dep.Ident, Reference: dep.Reference})
-			typeRoots = append(typeRoots, path.Dir(path.Join(p.manifest.dirPath, packageInfo.PackageLocation)))
+			typeRoots = append(typeRoots, tspath.GetDirectoryPath(
+				tspath.CombinePaths(p.manifest.dirPath, packageInfo.PackageLocation),
+			))
 		}
 	}
 

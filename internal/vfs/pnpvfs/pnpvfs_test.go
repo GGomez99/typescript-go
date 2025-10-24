@@ -59,16 +59,18 @@ func TestPnpVfs_BasicFileOperations(t *testing.T) {
 	assert.Assert(t, !fs.DirectoryExists("/project/nonexistent"))
 
 	var files []string
-	fs.WalkDir("/", func(path string, d vfs.DirEntry, err error) error {
+	err := fs.WalkDir("/", func(path string, d vfs.DirEntry, err error) error {
 		if !d.IsDir() {
 			files = append(files, path)
 		}
 		return nil
 	})
 
+	assert.NilError(t, err)
 	assert.DeepEqual(t, files, []string{"/project/package.json", "/project/src/index.ts"})
 
-	fs.WriteFile("/project/src/index.ts", "export const hello = 'world2';", false)
+	err = fs.WriteFile("/project/src/index.ts", "export const hello = 'world2';", false)
+	assert.NilError(t, err)
 
 	content, ok = fs.ReadFile("/project/src/index.ts")
 	assert.Assert(t, ok)
@@ -108,6 +110,8 @@ func TestPnpVfs_ErrorHandling(t *testing.T) {
 	fs := pnpvfs.From(osvfs.FS())
 
 	t.Run("NonexistentZipFile", func(t *testing.T) {
+		t.Parallel()
+
 		result := fs.FileExists("/nonexistent/path/archive.zip/file.txt")
 		assert.Assert(t, !result)
 
@@ -116,22 +120,27 @@ func TestPnpVfs_ErrorHandling(t *testing.T) {
 	})
 
 	t.Run("InvalidZipFile", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		fakePath := tspath.CombinePaths(tmpDir, "fake.zip")
 		err := os.WriteFile(fakePath, []byte("not a zip file"), 0o644)
 		assert.NilError(t, err)
+
 		result := fs.FileExists(fakePath + "/file.txt")
 		assert.Assert(t, !result)
 	})
 
 	t.Run("WriteToZipFile", func(t *testing.T) {
+		t.Parallel()
+
 		zipFiles := map[string]string{
 			"src/index.ts": "export const hello = 'world';",
 		}
 		zipPath := createTestZip(t, zipFiles)
 
 		testutil.AssertPanics(t, func() {
-			fs.WriteFile(zipPath+"/src/index.ts", "hello, world", false)
+			_ = fs.WriteFile(zipPath+"/src/index.ts", "hello, world", false)
 		}, "cannot write to zip file")
 	})
 }
@@ -182,6 +191,7 @@ func TestZipPath_Detection(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.path, func(t *testing.T) {
+			t.Parallel()
 			assert.Assert(t, tspath.IsZipPath(tc.path) == tc.shouldBeZip)
 		})
 	}
@@ -216,12 +226,13 @@ func TestPnpVfs_VirtualPathHandling(t *testing.T) {
 	assert.DeepEqual(t, entries.Directories, []string(nil))
 
 	files := []string{}
-	fs.WalkDir("/project/packages/__virtual__/packageB-virtual-123456/0/packageB", func(path string, d vfs.DirEntry, err error) error {
+	err := fs.WalkDir("/project/packages/__virtual__/packageB-virtual-123456/0/packageB", func(path string, d vfs.DirEntry, err error) error {
 		if !d.IsDir() {
 			files = append(files, path)
 		}
 		return nil
 	})
+	assert.NilError(t, err)
 	assert.DeepEqual(t, files, []string{
 		"/project/packages/__virtual__/packageB-virtual-123456/0/packageB/indexB.ts",
 		"/project/packages/__virtual__/packageB-virtual-123456/0/packageB/package.json",
@@ -268,12 +279,13 @@ func TestPnpVfs_RealZipIntegration(t *testing.T) {
 	assert.Equal(t, fs.Realpath(indexPath), indexPath)
 
 	files := []string{}
-	fs.WalkDir(zipPath, func(path string, d vfs.DirEntry, err error) error {
+	err := fs.WalkDir(zipPath, func(path string, d vfs.DirEntry, err error) error {
 		if !d.IsDir() {
 			files = append(files, path)
 		}
 		return nil
 	})
+	assert.NilError(t, err)
 	assert.DeepEqual(t, files, []string{zipPath + "/package.json", zipPath + "/src/index.ts", zipPath + "/src/utils/helpers.ts", zipPath + "/tsconfig.json"})
 
 	assert.Assert(t, fs.FileExists(zipPath+"/src/__virtual__/src-virtual-123456/0/index.ts"))
