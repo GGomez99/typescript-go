@@ -3,12 +3,12 @@ package pnp
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path"
 	"strings"
 
 	"github.com/dlclark/regexp2"
 	"github.com/microsoft/typescript-go/internal/tspath"
+	"github.com/microsoft/typescript-go/internal/vfs"
 )
 
 type LinkType string
@@ -74,16 +74,16 @@ type PnpManifestData struct {
 	packageRegistryTrie *PackageRegistryTrie
 }
 
-func parseManifestFromPath(manifestDir string) (*PnpManifestData, error) {
+func parseManifestFromPath(fs vfs.FS, manifestDir string) (*PnpManifestData, error) {
 	pnpDataString := ""
 
-	data, err := os.ReadFile(path.Join(manifestDir, ".pnp.data.json"))
-	if err == nil {
+	data, ok := fs.ReadFile(path.Join(manifestDir, ".pnp.data.json"))
+	if ok {
 		pnpDataString = string(data)
 	} else {
-		data, err := os.ReadFile(path.Join(manifestDir, ".pnp.cjs"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to read .pnp.cjs file: %w", err)
+		data, ok := fs.ReadFile(path.Join(manifestDir, ".pnp.cjs"))
+		if !ok {
+			return nil, fmt.Errorf("failed to read .pnp.cjs file")
 		}
 
 		pnpString := string(data)
@@ -143,7 +143,12 @@ func parsePnpManifest(rawData map[string]interface{}, manifestDir string) (*PnpM
 
 	ignorePatternData := getField(rawData, "ignorePatternData", parseString)
 	if ignorePatternData != "" {
-		data.ignorePatternData = regexp2.MustCompile(ignorePatternData, regexp2.None)
+		ignorePatternDataRegexp, err := regexp2.Compile(ignorePatternData, regexp2.None)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile ignore pattern data: %w", err)
+		}
+
+		data.ignorePatternData = ignorePatternDataRegexp
 	}
 
 	data.enableTopLevelFallback = getField(rawData, "enableTopLevelFallback", parseBool)
