@@ -60,12 +60,12 @@ func (pnpFS *pnpFS) GetAccessibleEntries(path string) vfs.Entries {
 	entries := fs.GetAccessibleEntries(formattedPath)
 
 	for i, dir := range entries.Directories {
-		fullPath := tspath.CombinePaths(zipPath, formattedPath, dir)
+		fullPath := tspath.CombinePaths(zipPath+formattedPath, dir)
 		entries.Directories[i] = makeVirtualPath(basePath, hash, fullPath)
 	}
 
 	for i, file := range entries.Files {
-		fullPath := tspath.CombinePaths(zipPath, formattedPath, file)
+		fullPath := tspath.CombinePaths(zipPath+formattedPath, file)
 		entries.Files[i] = makeVirtualPath(basePath, hash, fullPath)
 	}
 
@@ -90,7 +90,7 @@ func (pnpFS *pnpFS) Realpath(path string) string {
 	path, hash, basePath := resolveVirtual(path)
 
 	fs, formattedPath, zipPath := getMatchingFS(pnpFS, path)
-	fullPath := tspath.CombinePaths(zipPath, fs.Realpath(formattedPath))
+	fullPath := zipPath + fs.Realpath(formattedPath)
 	return makeVirtualPath(basePath, hash, fullPath)
 }
 
@@ -118,7 +118,7 @@ func (pnpFS *pnpFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
 
 	fs, formattedPath, zipPath := getMatchingFS(pnpFS, root)
 	return fs.WalkDir(formattedPath, (func(path string, d vfs.DirEntry, err error) error {
-		fullPath := tspath.CombinePaths(zipPath, path)
+		fullPath := zipPath + path
 		return walkFn(makeVirtualPath(basePath, hash, fullPath), d, err)
 	}))
 }
