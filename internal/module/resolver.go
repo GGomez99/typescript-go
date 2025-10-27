@@ -1788,7 +1788,6 @@ func (r *resolutionState) readPackageJsonPeerDependencies(packageJsonInfo *packa
 	}
 	nodeModules := packageDirectory[:nodeModulesIndex+len("/node_modules")] + "/"
 	builder := strings.Builder{}
-	// TODO: find an example that needs this change
 	pnpApi := pnp.GetPnpApi(packageJsonInfo.PackageDirectory)
 	for name := range peerDependencies.Value {
 		var peerDependencyPath string
