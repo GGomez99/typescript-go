@@ -985,8 +985,13 @@ func (r *resolutionState) loadModuleFromPnpResolution(ext extensions, moduleName
 
 	if pnpApi != nil {
 		packageName, rest := ParsePackageName(moduleName)
-		// TODO: bubble up yarn resolution errors, instead of _
-		packageDirectory, _ := pnpApi.ResolveToUnqualified(packageName, issuer)
+		packageDirectory, err := pnpApi.ResolveToUnqualified(packageName, issuer)
+		if err != nil {
+			if r.tracer != nil {
+				r.tracer.write(err.Error())
+			}
+			return nil
+		}
 		if packageDirectory != "" {
 			candidate := tspath.NormalizePath(tspath.CombinePaths(packageDirectory, rest))
 			return r.loadModuleFromSpecificNodeModulesDirectoryImpl(ext, true /* nodeModulesDirectoryExists */, candidate, rest, packageDirectory)
@@ -1792,7 +1797,14 @@ func (r *resolutionState) readPackageJsonPeerDependencies(packageJsonInfo *packa
 		var peerDependencyPath string
 
 		if pnpApi != nil {
-			peerDependencyPath, _ = pnpApi.ResolveToUnqualified(name, packageDirectory)
+			var err error
+			peerDependencyPath, err = pnpApi.ResolveToUnqualified(name, packageDirectory)
+			if err != nil {
+				if r.tracer != nil {
+					r.tracer.write(err.Error())
+				}
+				continue
+			}
 		}
 
 		if peerDependencyPath == "" {
