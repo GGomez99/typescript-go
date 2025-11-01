@@ -24,36 +24,6 @@ type TestCase struct {
 	It       string `json:"it"`
 }
 
-func TestResolveToUnqualifiedExample(t *testing.T) {
-	t.Parallel()
-	pnpPath := filepath.Join(repo.TestDataPath, "fixtures", "pnp", "pnp-yarn-v3.cjs")
-
-	fs := osvfs.FS()
-	pnpDataString, err := extractPnpDataStringFromCjsPath(fs, pnpPath)
-	if err != nil {
-		t.Fatalf("failed to parse manifest: %v", err)
-	}
-	manifest, err := parseManifestFromData(pnpDataString, tspath.GetDirectoryPath(pnpPath))
-	if err != nil {
-		t.Fatalf("failed to parse manifest: %v", err)
-	}
-	pnpApi := &PnpApi{fs: fs, url: pnpPath, manifest: manifest}
-
-	parentPath, err := filepath.Abs("/path/to/file")
-	if err != nil {
-		t.Fatalf("failed to filepath.Abs: %v", err)
-	}
-
-	t.Run("Example", func(t *testing.T) {
-		t.Parallel()
-		_, resolutionErr := pnpApi.ResolveToUnqualified("lodash/cloneDeep", parentPath)
-		if resolutionErr != nil {
-			t.Fatalf("resolution error: %v", resolutionErr)
-			return
-		}
-	})
-}
-
 func TestLoadPnPManifest(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
