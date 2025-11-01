@@ -10,6 +10,7 @@ import (
 	"github.com/go-json-experiment/json/jsontext"
 	"github.com/microsoft/typescript-go/internal/repo"
 	"github.com/microsoft/typescript-go/internal/tspath"
+	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
 )
 
 type TestSuite struct {
@@ -24,26 +25,11 @@ type TestCase struct {
 	It       string `json:"it"`
 }
 
-type testFS struct{}
-
-func (f *testFS) FileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func (f *testFS) ReadFile(path string) (contents string, ok bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	return string(data), true
-}
-
 func TestResolveToUnqualifiedExample(t *testing.T) {
 	t.Parallel()
 	pnpPath := filepath.Join(repo.TestDataPath, "fixtures", "pnp", "pnp-yarn-v3.cjs")
 
-	fs := &testFS{}
+	fs := osvfs.FS()
 	pnpDataString, err := extractPnpDataStringFromCjsPath(fs, pnpPath)
 	if err != nil {
 		t.Fatalf("failed to parse manifest: %v", err)
@@ -52,7 +38,7 @@ func TestResolveToUnqualifiedExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse manifest: %v", err)
 	}
-	pnpApi := &PnpApi{fs: &testFS{}, url: pnpPath, manifest: manifest}
+	pnpApi := &PnpApi{fs: fs, url: pnpPath, manifest: manifest}
 
 	parentPath, err := filepath.Abs("/path/to/file")
 	if err != nil {
@@ -86,7 +72,7 @@ func TestLoadPnPManifest(t *testing.T) {
 		t.Run(tc.path, func(t *testing.T) {
 			t.Parallel()
 
-			fs := &testFS{}
+			fs := osvfs.FS()
 			pnpDataString, err := extractPnpDataStringFromCjsPath(fs, tc.path)
 			if err != nil {
 				t.Fatalf("failed to parse manifest: %v", err)
@@ -127,7 +113,7 @@ func TestResolveUnqualified(t *testing.T) {
 
 		for _, tc := range testSuite.Tests {
 			parent := filepath.Join(tc.Importer, "fooo")
-			pnpApi := &PnpApi{fs: &testFS{}, url: "/path/to/project/.pnp.cjs", manifest: manifest}
+			pnpApi := &PnpApi{fs: osvfs.FS(), url: "/path/to/project/.pnp.cjs", manifest: manifest}
 
 			t.Run(tc.It, func(t *testing.T) {
 				t.Parallel()
