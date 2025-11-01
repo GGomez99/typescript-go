@@ -8,12 +8,13 @@ package pnp
  *
  * The full specification is available at https://yarnpkg.com/advanced/pnp-spec
  */
-
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
+	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/tspath"
 )
 
@@ -24,10 +25,24 @@ type PnpApi struct {
 }
 
 // FS abstraction used by the PnpApi to access the file system
-// We can't use the vfs.FS interface because it creates an import cycle: core -> pnp -> vfs -> core
 type PnpApiFS interface {
 	FileExists(path string) bool
 	ReadFile(path string) (contents string, ok bool)
+}
+
+func isNodeJSBuiltin(name string) bool {
+	return core.NodeCoreModules()[name]
+}
+
+func isDependencyTreeRoot(m *PnpManifestData, loc *Locator) bool {
+	return slices.Contains(m.dependencyTreeRoots, *loc)
+}
+
+func viaSuffix(specifier string, ident string) string {
+	if ident != specifier {
+		return fmt.Sprintf("%s (via \"%s\")", ident, specifier)
+	}
+	return ""
 }
 
 func (p *PnpApi) RefreshManifest() error {
@@ -56,13 +71,13 @@ func (p *PnpApi) ResolveToUnqualified(specifier string, parentPath string) (stri
 	ident, modulePath, err := p.ParseBareIdentifier(specifier)
 	if err != nil {
 		// Skipping resolution
-		return "", nil
+		return "", err
 	}
 
 	parentLocator, err := p.FindLocator(parentPath)
 	if err != nil || parentLocator == nil {
 		// Skipping resolution
-		return "", nil
+		return "", err
 	}
 
 	parentPkg := p.GetPackage(parentLocator)
@@ -96,12 +111,24 @@ func (p *PnpApi) ResolveToUnqualified(specifier string, parentPath string) (stri
 		}
 	}
 
-	// undeclared dependency
 	if referenceOrAlias == nil {
-		if parentLocator.Name == "" {
-			return "", fmt.Errorf("Your application tried to access %s, but it isn't declared in your dependencies; this makes the require call ambiguous and unsound.\n\nRequired package: %s\nRequired by: %s", ident, ident, parentPath)
+		if isNodeJSBuiltin(specifier) {
+			if isDependencyTreeRoot(p.manifest, parentLocator) {
+				return "", fmt.Errorf("Your application tried to access %s. While this module is usually interpreted as a Node builtin, your resolver is running inside a non-Node resolution context where such builtins are ignored. Since %s isn't otherwise declared in your dependencies, this makes the require call ambiguous and unsound.\n\nRequired package: %s%s\nRequired by: %s",
+					ident, ident, ident, viaSuffix(specifier, ident), parentPath)
+			}
+			return "", fmt.Errorf(
+				"%s tried to access %s. While this module is usually interpreted as a Node builtin, your resolver is running inside a non-Node resolution context where such builtins are ignored. Since %s isn't otherwise declared in %s's dependencies, this makes the require call ambiguous and unsound.\n\nRequired package: %s%s\nRequired by: %s",
+				parentLocator.Name, ident, ident, parentLocator.Name, ident, viaSuffix(specifier, ident), parentPath,
+			)
 		}
-		return "", fmt.Errorf("%s tried to access %s, but it isn't declared in your dependencies; this makes the require call ambiguous and unsound.\n\nRequired package: %s\nRequired by: %s", parentLocator.Name, ident, ident, parentPath)
+
+		if isDependencyTreeRoot(p.manifest, parentLocator) {
+			return "", fmt.Errorf(
+				"Your application tried to access %s, but it isn't declared in your dependencies; this makes the require call ambiguous and unsound.\n\nRequired package: %s%s\nRequired by: %s",
+				ident, ident, viaSuffix(specifier, ident), parentPath,
+			)
+		}
 	}
 
 	// unfulfilled peer dependency
