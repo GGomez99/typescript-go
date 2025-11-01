@@ -1,7 +1,6 @@
 package pnp
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,18 +41,16 @@ func TestResolveToUnqualifiedExample(t *testing.T) {
 
 	parentPath, err := filepath.Abs("/path/to/file")
 	if err != nil {
-		log.Fatalf("failed to filepath.Abs: %v", err)
+		t.Fatalf("failed to filepath.Abs: %v", err)
 	}
 
 	t.Run("Example", func(t *testing.T) {
 		t.Parallel()
-		res, resolutionErr := pnpApi.ResolveToUnqualified("lodash/cloneDeep", parentPath)
+		_, resolutionErr := pnpApi.ResolveToUnqualified("lodash/cloneDeep", parentPath)
 		if resolutionErr != nil {
-			log.Printf("resolution error: %v", resolutionErr)
+			t.Fatalf("resolution error: %v", resolutionErr)
 			return
 		}
-
-		log.Printf("Resolved: path=%s", res)
 	})
 }
 
