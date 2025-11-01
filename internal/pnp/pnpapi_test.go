@@ -40,7 +40,7 @@ func TestLoadPnPManifest(t *testing.T) {
 			t.Parallel()
 
 			fs := osvfs.FS()
-			pnpDataString, err := extractPnpDataStringFromCjsPath(fs, tc.path)
+			pnpDataString, err := extractPnpDataStringFromPath(fs, tc.path)
 			if err != nil {
 				t.Fatalf("failed to parse manifest: %v", err)
 			}

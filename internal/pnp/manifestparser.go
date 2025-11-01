@@ -81,7 +81,7 @@ func parseManifestFromPath(fs PnpApiFS, manifestDir string) (*PnpManifestData, e
 	if ok {
 		pnpDataString = data
 	} else {
-		dataString, err := extractPnpDataStringFromCjsPath(fs, tspath.CombinePaths(manifestDir, ".pnp.cjs"))
+		dataString, err := extractPnpDataStringFromPath(fs, tspath.CombinePaths(manifestDir, ".pnp.cjs"))
 		if err != nil {
 			return nil, err
 		}
@@ -91,10 +91,10 @@ func parseManifestFromPath(fs PnpApiFS, manifestDir string) (*PnpManifestData, e
 	return parseManifestFromData(pnpDataString, manifestDir)
 }
 
-func extractPnpDataStringFromCjsPath(fs PnpApiFS, path string) (string, error) {
+func extractPnpDataStringFromPath(fs PnpApiFS, path string) (string, error) {
 	pnpScriptString, ok := fs.ReadFile(path)
 	if !ok {
-		return "", errors.New("failed to read .pnp.cjs file")
+		return "", errors.New("failed to read file: " + path)
 	}
 	manifestRegex := regexp2.MustCompile(`(const[ \r\n]+RAW_RUNTIME_STATE[ \r\n]*=[ \r\n]*|hydrateRuntimeState\(JSON\.parse\()'`, regexp2.None)
 	matches, err := manifestRegex.FindStringMatch(pnpScriptString)
