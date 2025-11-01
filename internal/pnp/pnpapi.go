@@ -45,6 +45,10 @@ func viaSuffix(specifier string, ident string) string {
 	return ""
 }
 
+func findBrokenPeerDependencies(specifier string, parent *Locator) []Locator {
+	return []Locator{}
+}
+
 func (p *PnpApi) RefreshManifest() error {
 	var newData *PnpManifestData
 	var err error
@@ -122,14 +126,23 @@ func (p *PnpApi) ResolveToUnqualified(specifier string, parentPath string) (stri
 		if isDependencyTreeRoot(p.manifest, parentLocator) {
 			return "", errors.New(diagnostics.Your_application_tried_to_access_0_but_it_isn_t_declared_in_your_dependencies_this_makes_the_require_call_ambiguous_and_unsound_Required_package_Colon_0_1_Required_by_Colon_2.Format(ident, ident, viaSuffix(specifier, ident), parentPath))
 		}
-	}
 
-	// unfulfilled peer dependency
-	if !referenceOrAlias.IsAlias() && referenceOrAlias.Reference == "" {
-		if parentLocator.Name == "" {
-			return "", errors.New(diagnostics.Your_application_tried_to_access_0_a_peer_dependency_this_isn_t_allowed_as_there_is_no_ancestor_to_satisfy_the_requirement_Use_a_devDependency_if_needed_Required_package_Colon_0_Required_by_Colon_1.Format(ident, ident, parentPath))
+		brokenAncestors := findBrokenPeerDependencies(specifier, parentLocator)
+		allBrokenAreRoots := len(brokenAncestors) > 0
+		if allBrokenAreRoots {
+			for _, brokenAncestor := range brokenAncestors {
+				if !isDependencyTreeRoot(p.manifest, &brokenAncestor) {
+					allBrokenAreRoots = false
+					break
+				}
+			}
 		}
-		return "", errors.New(diagnostics.X_0_tried_to_access_1_a_peer_dependency_but_it_isn_t_provided_by_its_ancestors_Slashyour_application_this_makes_the_require_call_ambiguous_and_unsound_Required_package_Colon_1_Required_by_Colon_2.Format(parentLocator.Name, ident, ident, parentPath))
+
+		if len(brokenAncestors) > 0 && allBrokenAreRoots {
+			return "", errors.New(diagnostics.Your_application_tried_to_access_0_a_peer_dependency_this_isn_t_allowed_as_there_is_no_ancestor_to_satisfy_the_requirement_Use_a_devDependency_if_needed_Required_package_Colon_0_Required_by_Colon_1.Format(ident, ident, parentPath))
+		} else {
+			return "", errors.New(diagnostics.X_0_tried_to_access_1_a_peer_dependency_but_it_isn_t_provided_by_its_ancestors_Slashyour_application_this_makes_the_require_call_ambiguous_and_unsound_Required_package_Colon_1_Required_by_Colon_2.Format(parentLocator.Name, ident, ident, parentPath))
+		}
 	}
 
 	var dependencyPkg *PackageInfo
