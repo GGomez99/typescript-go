@@ -9,12 +9,12 @@ package pnp
  * The full specification is available at https://yarnpkg.com/advanced/pnp-spec
  */
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/diagnostics"
 	"github.com/microsoft/typescript-go/internal/tspath"
 )
 
@@ -40,7 +40,7 @@ func isDependencyTreeRoot(m *PnpManifestData, loc *Locator) bool {
 
 func viaSuffix(specifier string, ident string) string {
 	if ident != specifier {
-		return fmt.Sprintf("%s (via \"%s\")", ident, specifier)
+		return ident + " (via \"" + specifier + "\")"
 	}
 	return ""
 }
@@ -114,29 +114,22 @@ func (p *PnpApi) ResolveToUnqualified(specifier string, parentPath string) (stri
 	if referenceOrAlias == nil {
 		if isNodeJSBuiltin(specifier) {
 			if isDependencyTreeRoot(p.manifest, parentLocator) {
-				return "", fmt.Errorf("Your application tried to access %s. While this module is usually interpreted as a Node builtin, your resolver is running inside a non-Node resolution context where such builtins are ignored. Since %s isn't otherwise declared in your dependencies, this makes the require call ambiguous and unsound.\n\nRequired package: %s%s\nRequired by: %s",
-					ident, ident, ident, viaSuffix(specifier, ident), parentPath)
+				return "", fmt.Errorf("%s", diagnostics.Your_application_tried_to_access_0_While_this_module_is_usually_interpreted_as_a_Node_builtin_your_resolver_is_running_inside_a_non_Node_resolution_context_where_such_builtins_are_ignored_Since_0_isn_t_otherwise_declared_in_your_dependencies_this_makes_the_require_call_ambiguous_and_unsound_Required_package_Colon_0_1_Required_by_Colon_2.Format(ident, ident, viaSuffix(specifier, ident), parentPath))
 			}
-			return "", fmt.Errorf(
-				"%s tried to access %s. While this module is usually interpreted as a Node builtin, your resolver is running inside a non-Node resolution context where such builtins are ignored. Since %s isn't otherwise declared in %s's dependencies, this makes the require call ambiguous and unsound.\n\nRequired package: %s%s\nRequired by: %s",
-				parentLocator.Name, ident, ident, parentLocator.Name, ident, viaSuffix(specifier, ident), parentPath,
-			)
+			return "", fmt.Errorf("%s", diagnostics.X_0_tried_to_access_1_While_this_module_is_usually_interpreted_as_a_Node_builtin_your_resolver_is_running_inside_a_non_Node_resolution_context_where_such_builtins_are_ignored_Since_1_isn_t_otherwise_declared_in_0_s_dependencies_this_makes_the_require_call_ambiguous_and_unsound_Required_package_Colon_1_2_Required_by_Colon_3.Format(parentLocator.Name, ident, ident, parentLocator.Name, ident, viaSuffix(specifier, ident), parentPath))
 		}
 
 		if isDependencyTreeRoot(p.manifest, parentLocator) {
-			return "", fmt.Errorf(
-				"Your application tried to access %s, but it isn't declared in your dependencies; this makes the require call ambiguous and unsound.\n\nRequired package: %s%s\nRequired by: %s",
-				ident, ident, viaSuffix(specifier, ident), parentPath,
-			)
+			return "", fmt.Errorf("%s", diagnostics.Your_application_tried_to_access_0_but_it_isn_t_declared_in_your_dependencies_this_makes_the_require_call_ambiguous_and_unsound_Required_package_Colon_0_1_Required_by_Colon_2.Format(ident, ident, viaSuffix(specifier, ident), parentPath))
 		}
 	}
 
 	// unfulfilled peer dependency
 	if !referenceOrAlias.IsAlias() && referenceOrAlias.Reference == "" {
 		if parentLocator.Name == "" {
-			return "", fmt.Errorf("Your application tried to access %s (a peer dependency); this isn't allowed as there is no ancestor to satisfy the requirement. Use a devDependency if needed.\n\nRequired package: %s\nRequired by: %s", ident, ident, parentPath)
+			return "", fmt.Errorf("%s", diagnostics.Your_application_tried_to_access_0_a_peer_dependency_this_isn_t_allowed_as_there_is_no_ancestor_to_satisfy_the_requirement_Use_a_devDependency_if_needed_Required_package_Colon_0_Required_by_Colon_1.Format(ident, ident, parentPath))
 		}
-		return "", fmt.Errorf("%s tried to access %s (a peer dependency) but it isn't provided by its ancestors/your application; this makes the require call ambiguous and unsound.\n\nRequired package: %s\nRequired by: %s", parentLocator.Name, ident, ident, parentPath)
+		return "", fmt.Errorf("%s", diagnostics.X_0_tried_to_access_1_a_peer_dependency_but_it_isn_t_provided_by_its_ancestors_Slashyour_application_this_makes_the_require_call_ambiguous_and_unsound_Required_package_Colon_1_Required_by_Colon_2.Format(parentLocator.Name, ident, ident, parentPath))
 	}
 
 	var dependencyPkg *PackageInfo
@@ -159,7 +152,7 @@ func (p *PnpApi) findClosestPnpManifest() (*PnpManifestData, error) {
 		}
 
 		if tspath.IsDiskPathRoot(directoryPath) {
-			return nil, errors.New("no PnP manifest found")
+			return nil, fmt.Errorf("%s", diagnostics.X_no_PnP_manifest_found.Format())
 		}
 
 		directoryPath = tspath.GetDirectoryPath(directoryPath)
@@ -218,7 +211,7 @@ func (p *PnpApi) FindLocator(parentPath string) (*Locator, error) {
 	}
 
 	if bestLocator == nil {
-		return nil, fmt.Errorf("no package found for path %s", relativePath)
+		return nil, fmt.Errorf("%s", diagnostics.X_no_package_found_for_path_0.Format(relativePath))
 	}
 
 	return bestLocator, nil
@@ -250,14 +243,14 @@ func (p *PnpApi) ResolveViaFallback(name string) *PackageDependency {
 
 func (p *PnpApi) ParseBareIdentifier(specifier string) (ident string, modulePath string, err error) {
 	if len(specifier) == 0 {
-		return "", "", fmt.Errorf("Empty specifier: %s", specifier)
+		return "", "", fmt.Errorf("%s", diagnostics.Empty_specifier_Colon_0.Format(specifier))
 	}
 
 	firstSlash := strings.Index(specifier, "/")
 
 	if specifier[0] == '@' {
 		if firstSlash == -1 {
-			return "", "", fmt.Errorf("Invalid specifier: %s", specifier)
+			return "", "", fmt.Errorf("%s", diagnostics.Invalid_specifier_Colon_0.Format(specifier))
 		}
 
 		secondSlash := strings.Index(specifier[firstSlash+1:], "/")
