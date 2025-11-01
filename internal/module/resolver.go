@@ -2082,6 +2082,10 @@ func GetAutomaticTypeDirectiveNames(options *core.CompilerOptions, host Resoluti
 }
 
 func appendPnpTypeRoots(typeRoots []string, currentDirectory string, configFilePath string, pnpApi *pnp.PnpApi) []string {
+	if pnpApi == nil {
+		return typeRoots
+	}
+
 	var baseDir string
 	if configFilePath != "" {
 		baseDir = tspath.GetDirectoryPath(configFilePath)
@@ -2092,8 +2096,6 @@ func appendPnpTypeRoots(typeRoots []string, currentDirectory string, configFileP
 		}
 	}
 
-	if pnpApi != nil {
-		typeRoots, _ = pnpApi.AppendPnpTypeRoots(typeRoots, baseDir, false)
-	}
+	typeRoots, _ = pnpApi.AppendPnpTypeRoots(typeRoots, baseDir, false)
 	return typeRoots
 }
