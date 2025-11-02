@@ -356,7 +356,8 @@ func (p *PnpApi) IsInPnpModule(fromFileName string, toFileName string) bool {
 	return fromLocator != nil && toLocator != nil && fromLocator.Name != toLocator.Name
 }
 
-func (p *PnpApi) AppendPnpTypeRoots(nmTypes []string, baseDir string, nmFromConfig bool) ([]string, bool) {
+func (p *PnpApi) AppendPnpTypeRoots(nmTypes []string, currentDirectory string, compilerOptions *core.CompilerOptions, nmFromConfig bool) ([]string, bool) {
+	baseDir := compilerOptions.GetBaseDirFromOptions(currentDirectory)
 	pnpTypes := p.GetPnpTypeRoots(baseDir)
 
 	if len(nmTypes) > 0 {
