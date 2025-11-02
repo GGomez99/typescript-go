@@ -209,7 +209,7 @@ func (r *Resolver) ResolveTypeReferenceDirective(
 
 	typeRoots, fromConfig := compilerOptions.GetEffectiveTypeRoots(r.host.GetCurrentDirectory())
 	if pnpApi := r.host.PnpApi(); pnpApi != nil {
-		typeRoots, fromConfig = pnpApi.AppendPnpTypeRoots(typeRoots, r.host.GetCurrentDirectory(), compilerOptions, false)
+		typeRoots, fromConfig = pnpApi.AppendPnpTypeRoots(typeRoots, r.host.GetCurrentDirectory(), compilerOptions, fromConfig)
 	}
 	if traceBuilder != nil {
 		traceBuilder.write(diagnostics.Resolving_type_reference_directive_0_containing_file_1_root_directory_2.Format(typeReferenceDirectiveName, containingFile, strings.Join(typeRoots, ",")))
@@ -2055,9 +2055,9 @@ func GetAutomaticTypeDirectiveNames(options *core.CompilerOptions, host Resoluti
 	}
 
 	var result []string
-	typeRoots, _ := options.GetEffectiveTypeRoots(host.GetCurrentDirectory())
+	typeRoots, fromConfig := options.GetEffectiveTypeRoots(host.GetCurrentDirectory())
 	if pnpApi := host.PnpApi(); pnpApi != nil {
-		typeRoots, _ = pnpApi.AppendPnpTypeRoots(typeRoots, host.GetCurrentDirectory(), options, false)
+		typeRoots, fromConfig = pnpApi.AppendPnpTypeRoots(typeRoots, host.GetCurrentDirectory(), options, fromConfig)
 	}
 	for _, root := range typeRoots {
 		if host.FS().DirectoryExists(root) {
