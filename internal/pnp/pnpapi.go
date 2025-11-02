@@ -16,18 +16,13 @@ import (
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
 	"github.com/microsoft/typescript-go/internal/tspath"
+	"github.com/microsoft/typescript-go/internal/vfs"
 )
 
 type PnpApi struct {
-	fs       PnpApiFS
+	fs       vfs.FS
 	url      string
 	manifest *PnpManifestData
-}
-
-// FS abstraction used by the PnpApi to access the file system
-type PnpApiFS interface {
-	FileExists(path string) bool
-	ReadFile(path string) (contents string, ok bool)
 }
 
 func isNodeJSBuiltin(name string) bool {
@@ -45,6 +40,8 @@ func viaSuffix(specifier string, ident string) string {
 	return ""
 }
 
+// TODO: implement this from yarn sourcecode
+// https://github.com/yarnpkg/berry/blob/master/packages/yarnpkg-pnp/sources/loader/makeApi.ts#L458
 func findBrokenPeerDependencies(specifier string, parent *Locator) []Locator {
 	return []Locator{}
 }

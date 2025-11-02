@@ -9,6 +9,7 @@ import (
 
 	"github.com/dlclark/regexp2"
 	"github.com/microsoft/typescript-go/internal/tspath"
+	"github.com/microsoft/typescript-go/internal/vfs"
 )
 
 type LinkType string
@@ -74,7 +75,7 @@ type PnpManifestData struct {
 	packageRegistryTrie *PackageRegistryTrie
 }
 
-func parseManifestFromPath(fs PnpApiFS, manifestDir string) (*PnpManifestData, error) {
+func parseManifestFromPath(fs vfs.FS, manifestDir string) (*PnpManifestData, error) {
 	pnpDataString := ""
 
 	data, ok := fs.ReadFile(tspath.CombinePaths(manifestDir, ".pnp.data.json"))
@@ -91,7 +92,7 @@ func parseManifestFromPath(fs PnpApiFS, manifestDir string) (*PnpManifestData, e
 	return parseManifestFromData(pnpDataString, manifestDir)
 }
 
-func extractPnpDataStringFromPath(fs PnpApiFS, path string) (string, error) {
+func extractPnpDataStringFromPath(fs vfs.FS, path string) (string, error) {
 	pnpScriptString, ok := fs.ReadFile(path)
 	if !ok {
 		return "", errors.New("failed to read file: " + path)
