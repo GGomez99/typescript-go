@@ -11,7 +11,6 @@ import (
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
 	"github.com/microsoft/typescript-go/internal/packagejson"
-	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/semver"
 	"github.com/microsoft/typescript-go/internal/tspath"
 )
@@ -209,7 +208,12 @@ func (r *Resolver) ResolveTypeReferenceDirective(
 	containingDirectory := tspath.GetDirectoryPath(containingFile)
 
 	typeRoots, fromConfig := compilerOptions.GetEffectiveTypeRoots(r.host.GetCurrentDirectory())
-	typeRoots = appendPnpTypeRoots(typeRoots, r.host.GetCurrentDirectory(), compilerOptions.ConfigFilePath, r.host.PnpApi())
+	if pnpApi := r.host.PnpApi(); pnpApi != nil {
+		pnpTypeRoots, ok := pnpApi.AppendPnpTypeRoots(typeRoots, compilerOptions.GetBaseDirFromOptions(r.host.GetCurrentDirectory()), false)
+		if ok {
+			typeRoots = pnpTypeRoots
+		}
+	}
 	if traceBuilder != nil {
 		traceBuilder.write(diagnostics.Resolving_type_reference_directive_0_containing_file_1_root_directory_2.Format(typeReferenceDirectiveName, containingFile, strings.Join(typeRoots, ",")))
 		traceBuilder.traceResolutionUsingProjectReference(redirectedReference)
@@ -2055,7 +2059,12 @@ func GetAutomaticTypeDirectiveNames(options *core.CompilerOptions, host Resoluti
 
 	var result []string
 	typeRoots, _ := options.GetEffectiveTypeRoots(host.GetCurrentDirectory())
-	typeRoots = appendPnpTypeRoots(typeRoots, host.GetCurrentDirectory(), options.ConfigFilePath, host.PnpApi())
+	if pnpApi := host.PnpApi(); pnpApi != nil {
+		pnpTypeRoots, ok := pnpApi.AppendPnpTypeRoots(typeRoots, options.GetBaseDirFromOptions(host.GetCurrentDirectory()), false)
+		if ok {
+			typeRoots = pnpTypeRoots
+		}
+	}
 	for _, root := range typeRoots {
 		if host.FS().DirectoryExists(root) {
 			for _, typeDirectivePath := range host.FS().GetAccessibleEntries(root).Directories {
@@ -2079,23 +2088,4 @@ func GetAutomaticTypeDirectiveNames(options *core.CompilerOptions, host Resoluti
 		}
 	}
 	return result
-}
-
-func appendPnpTypeRoots(typeRoots []string, currentDirectory string, configFilePath string, pnpApi *pnp.PnpApi) []string {
-	if pnpApi == nil {
-		return typeRoots
-	}
-
-	var baseDir string
-	if configFilePath != "" {
-		baseDir = tspath.GetDirectoryPath(configFilePath)
-	} else {
-		baseDir = currentDirectory
-		if baseDir == "" {
-			panic("cannot get effective type roots without a config file path or current directory")
-		}
-	}
-
-	typeRoots, _ = pnpApi.AppendPnpTypeRoots(typeRoots, baseDir, false)
-	return typeRoots
 }
