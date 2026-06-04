@@ -9,6 +9,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/bundled"
 	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/repo"
 	"github.com/microsoft/typescript-go/internal/tsoptions"
 	"github.com/microsoft/typescript-go/internal/tspath"
@@ -16,6 +17,63 @@ import (
 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
 	"gotest.tools/v3/assert"
 )
+
+func TestCompositeProjectAllowsPnpPackageSourceFiles(t *testing.T) {
+	t.Parallel()
+
+	files := map[string]string{
+		"/repo/.pnp.cjs": "",
+		"/repo/.pnp.data.json": `{
+			"__info": [],
+			"dependencyTreeRoots": [{"name": "root", "reference": "workspace:."}],
+			"ignorePatternData": null,
+			"enableTopLevelFallback": true,
+			"fallbackPool": [["pkg", "workspace:pkg"]],
+			"fallbackExclusionList": [],
+			"packageRegistryData": [
+				[null, [[null, {"packageLocation": "./", "packageDependencies": [], "linkType": "SOFT"}]]],
+				["root", [["workspace:.", {"packageLocation": "./", "packageDependencies": [], "linkType": "SOFT"}]]],
+				["app", [["workspace:app", {"packageLocation": "./app/", "packageDependencies": [], "linkType": "SOFT"}]]],
+				["pkg", [["workspace:pkg", {"packageLocation": "./pkg/", "packageDependencies": [], "linkType": "SOFT"}]]]
+			]
+		}`,
+		"/repo/app/package.json":  `{"name":"app","version":"0.0.0"}`,
+		"/repo/app/src/index.ts":  `import { value } from "pkg"; value;`,
+		"/repo/app/tsconfig.json": `{}`,
+		"/repo/pkg/package.json":  `{"name":"pkg","version":"1.0.0","exports":"./src/index.ts"}`,
+		"/repo/pkg/src/index.ts":  `export { value } from "./value";`,
+		"/repo/pkg/src/value.ts":  `export const value = 1;`,
+	}
+
+	fs := vfstest.FromMap(files, true /*useCaseSensitiveFileNames*/)
+	pnpApi := pnp.InitPnpApi(fs, "/repo/app/src/index.ts")
+	assert.Assert(t, pnpApi != nil)
+
+	opts := core.CompilerOptions{
+		Composite:        core.TSTrue,
+		ConfigFilePath:   "/repo/app/tsconfig.json",
+		Declaration:      core.TSTrue,
+		Incremental:      core.TSTrue,
+		Module:           core.ModuleKindESNext,
+		ModuleResolution: core.ModuleResolutionKindBundler,
+		NoLib:            core.TSTrue,
+		Target:           core.ScriptTargetESNext,
+	}
+	host := compiler.NewCompilerHost("/repo/app", fs, bundled.LibPath(), nil, pnpApi, nil)
+	program := compiler.NewProgram(compiler.ProgramOptions{
+		Config: &tsoptions.ParsedCommandLine{
+			ParsedConfig: &core.ParsedOptions{
+				FileNames:       []string{"/repo/app/src/index.ts"},
+				CompilerOptions: &opts,
+			},
+		},
+		Host: host,
+	})
+
+	for _, diagnostic := range program.GetProgramDiagnostics() {
+		assert.Assert(t, diagnostic.Code() != 6307, "unexpected TS6307 with message key %q", diagnostic.MessageKey())
+	}
+}
 
 type testFile struct {
 	fileName string

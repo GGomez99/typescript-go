@@ -28,6 +28,7 @@ type parseTask struct {
 	isForAutomaticTypeDirective bool
 	includeReason               *FileIncludeReason
 	packageId                   module.PackageId
+	foundByPackageId            bool
 
 	metadata                     ast.SourceFileMetaData
 	resolutionsInFile            module.ModeAwareCache[*module.ResolvedModule]
@@ -163,6 +164,7 @@ func (t *parseTask) redirect(loader *fileLoader, fileName string) {
 		normalizedFilePath: tspath.NormalizePath(fileName),
 		libFile:            t.libFile,
 		includeReason:      t.includeReason,
+		foundByPackageId:   t.foundByPackageId,
 	}
 	// increaseDepth and elideOnDepth are not copied to redirects, otherwise their depth would be double counted.
 	t.subTasks = []*parseTask{t.redirectedParseTask}
@@ -198,6 +200,7 @@ func (t *parseTask) addSubTask(ref resolvedRef, libFile *LibFile) {
 		elideOnDepth:       ref.elideOnDepth,
 		includeReason:      ref.includeReason,
 		packageId:          ref.packageId,
+		foundByPackageId:   t.foundByPackageId || ref.packageId.Name != "",
 	}
 	t.subTasks = append(t.subTasks, subTask)
 }
@@ -225,16 +228,20 @@ func getParseTaskData(task *parseTask) *parseTaskData {
 
 func putParseTaskData(td *parseTaskData) {
 	clear(td.tasks)
+	td.startedSubTasks = false
+	td.packageId = module.PackageId{}
+	td.foundByPackageId = false
 	parseTaskDataPool.Put(td)
 }
 
 type parseTaskData struct {
 	// map of tasks by file casing
-	tasks           map[string]*parseTask
-	mu              sync.Mutex
-	lowestDepth     int
-	startedSubTasks bool
-	packageId       module.PackageId
+	tasks            map[string]*parseTask
+	mu               sync.Mutex
+	lowestDepth      int
+	startedSubTasks  bool
+	packageId        module.PackageId
+	foundByPackageId bool
 }
 
 func (w *filesParser) parse(loader *fileLoader, tasks []*parseTask) {
@@ -270,6 +277,7 @@ func (w *filesParser) start(loader *fileLoader, tasks []*parseTask, depth int) {
 			if data.packageId.Name == "" && task.packageId.Name != "" {
 				data.packageId = task.packageId
 			}
+			data.foundByPackageId = data.foundByPackageId || task.foundByPackageId
 
 			currentDepth := core.IfElse(task.increaseDepth, depth+1, depth)
 			if currentDepth < data.lowestDepth {
@@ -333,6 +341,7 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 	var jsxRuntimeImportSpecifiers map[tspath.Path]*jsxRuntimeImportSpecifier
 	var importHelpersImportSpecifiers map[tspath.Path]*ast.StringLiteralNode
 	var sourceFilesFoundSearchingNodeModules collections.Set[tspath.Path]
+	var sourceFilesFoundByPackageId collections.Set[tspath.Path]
 	libFilesMap := make(map[tspath.Path]*LibFile, libFileCount)
 
 	var redirectTargetsMap map[tspath.Path][]string
@@ -456,6 +465,9 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 
 			path := task.path
 
+			if data.foundByPackageId {
+				sourceFilesFoundByPackageId.Add(path)
+			}
 			if len(task.processingDiagnostics) > 0 {
 				includeProcessor.processingDiagnostics = append(includeProcessor.processingDiagnostics, task.processingDiagnostics...)
 			}
@@ -527,6 +539,7 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 		jsxRuntimeImportSpecifiers:           jsxRuntimeImportSpecifiers,
 		importHelpersImportSpecifiers:        importHelpersImportSpecifiers,
 		sourceFilesFoundSearchingNodeModules: sourceFilesFoundSearchingNodeModules,
+		sourceFilesFoundByPackageId:          sourceFilesFoundByPackageId,
 		libFiles:                             libFilesMap,
 		missingFiles:                         missingFiles,
 		includeProcessor:                     includeProcessor,

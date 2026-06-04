@@ -896,7 +896,7 @@ func (p *Program) verifyCompilerOptions() {
 		}
 
 		for _, file := range p.files {
-			if sourceFileMayBeEmitted(file, p, false) && !rootPaths.Has(file.Path()) {
+			if sourceFileMayBeEmitted(file, p, false) && !rootPaths.Has(file.Path()) && !p.sourceFilesFoundByPackageId.Has(file.Path()) {
 				p.includeProcessor.addProcessingDiagnostic(&processingDiagnostic{
 					kind: processingDiagnosticKindExplainingFileInclude,
 					data: &includeExplainingDiagnostic{
