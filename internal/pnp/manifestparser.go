@@ -67,7 +67,7 @@ type PnpManifestData struct {
 	ignorePatternData      *regexp.Regexp
 	enableTopLevelFallback bool
 
-	fallbackPool         [][2]string
+	fallbackPool         []PackageDependency
 	fallbackExclusionMap map[string]*FallbackExclusion
 
 	dependencyTreeRoots []Locator
@@ -159,7 +159,10 @@ func parsePnpManifest(rawData map[string]any, manifestDir string) (*PnpManifestD
 
 	data.enableTopLevelFallback = getField(rawData, "enableTopLevelFallback", parseBool)
 
-	data.fallbackPool = getField(rawData, "fallbackPool", parseStringPairs)
+	// fallbackPool entries take the same shape as packageDependencies: a plain
+	// [name, reference] pair, or [name, [aliasName, reference]] for an alias. Parse
+	// it with the alias-aware parser so a pooled alias resolves to its target.
+	data.fallbackPool = getField(rawData, "fallbackPool", parsePackageDependencies)
 
 	data.fallbackExclusionMap = make(map[string]*FallbackExclusion)
 
@@ -279,21 +282,6 @@ func parseStringArray(value any) []string {
 		return result
 	}
 	return nil
-}
-
-func parseStringPairs(value any) [][2]string {
-	var result [][2]string
-	if arr, ok := value.([]any); ok {
-		for _, item := range arr {
-			if pair, ok := item.([]any); ok && len(pair) == 2 {
-				result = append(result, [2]string{
-					parseString(pair[0]),
-					parseString(pair[1]),
-				})
-			}
-		}
-	}
-	return result
 }
 
 func parsePackageDependencies(value any) []PackageDependency {
