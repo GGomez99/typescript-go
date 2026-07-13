@@ -2005,7 +2005,7 @@ func (r *resolutionState) isExternalLibraryImport(resolved *resolved) bool {
 
 	pnpApi := r.resolver.host.PnpApi()
 	if pnpApi != nil && !isExternalLibraryImport {
-		isExternalLibraryImport = pnpApi.IsInPnpModule(resolved.path, r.containingDirectory)
+		isExternalLibraryImport = pnpApi.IsExternalPackagePath(resolved.path, r.containingDirectory)
 	}
 
 	return isExternalLibraryImport

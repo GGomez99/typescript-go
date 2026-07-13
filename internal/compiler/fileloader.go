@@ -103,7 +103,6 @@ type processedFiles struct {
 	libFiles                      map[tspath.Path]*LibFile
 	// List of present unsupported extensions
 	sourceFilesFoundSearchingNodeModules collections.Set[tspath.Path]
-	sourceFilesFoundByPackageId          collections.Set[tspath.Path]
 	includeProcessor                     *includeProcessor
 	// if file was included using source file and its output is actually part of program
 	// this contains mapping from output to source file

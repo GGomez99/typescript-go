@@ -1921,7 +1921,7 @@ func (p *Program) getModeForTypeReferenceDirectiveInFile(ref *ast.FileReference,
 }
 
 func (p *Program) IsSourceFileFromExternalLibrary(file *ast.SourceFile) bool {
-	return p.sourceFilesFoundSearchingNodeModules.Has(file.Path()) || p.sourceFilesFoundByPackageId.Has(file.Path())
+	return p.sourceFilesFoundSearchingNodeModules.Has(file.Path())
 }
 
 func (p *Program) GetJSXRuntimeImportSpecifier(path tspath.Path) (moduleReference string, specifier *ast.Node) {

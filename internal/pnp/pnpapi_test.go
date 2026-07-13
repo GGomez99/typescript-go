@@ -100,6 +100,51 @@ func TestResolveUnqualified(t *testing.T) {
 	}
 }
 
+func TestIsExternalPackagePath(t *testing.T) {
+	t.Parallel()
+
+	manifest, err := parseManifestFromData(`{
+		"dependencyTreeRoots": [{"name": "app", "reference": "workspace:app"}],
+		"ignorePatternData": null,
+		"enableTopLevelFallback": true,
+		"fallbackPool": [["fallback", "workspace:fallback"]],
+		"fallbackExclusionList": [],
+		"packageRegistryData": [
+			[null, [[null, {"packageLocation": "./", "packageDependencies": [], "linkType": "SOFT"}]]],
+			["app", [["workspace:app", {"packageLocation": "./app/", "packageDependencies": [], "linkType": "SOFT"}]]],
+			["fallback", [["workspace:fallback", {"packageLocation": "./fallback/", "packageDependencies": [], "linkType": "SOFT"}]]],
+			["pkg", [
+				["workspace:one", {"packageLocation": "./pkg-one/", "packageDependencies": [], "linkType": "SOFT"}],
+				["workspace:two", {"packageLocation": "./pkg-two/", "packageDependencies": [], "linkType": "SOFT"}]
+			]]
+		]
+	}`, "/repo")
+	if err != nil {
+		t.Fatalf("failed to parse manifest: %v", err)
+	}
+	pnpApi := &PnpApi{fs: osvfs.FS(), url: "/repo/.pnp.cjs", manifest: manifest}
+
+	tests := []struct {
+		name     string
+		to       string
+		from     string
+		external bool
+	}{
+		{name: "same locator", to: "/repo/app/src/value.ts", from: "/repo/app/src/index.ts", external: false},
+		{name: "fallback package", to: "/repo/fallback/src/index.ts", from: "/repo/app/src/index.ts", external: true},
+		{name: "same name with different references", to: "/repo/pkg-two/src/index.ts", from: "/repo/pkg-one/src/index.ts", external: true},
+		{name: "missing locator", to: "/outside/pkg/index.ts", from: "/repo/app/src/index.ts", external: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if actual := pnpApi.IsExternalPackagePath(test.to, test.from); actual != test.external {
+				t.Fatalf("expected external=%v, got %v", test.external, actual)
+			}
+		})
+	}
+}
+
 func TestParseSinglePackageName(t *testing.T) {
 	t.Parallel()
 	pnpApi := &PnpApi{}
