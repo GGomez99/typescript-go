@@ -52,6 +52,49 @@ func TestResolveModuleNameTrailingSlash(t *testing.T) {
 	}
 }
 
+func TestPnpPackageIdUsesNormalizedSubmodulePath(t *testing.T) {
+	t.Parallel()
+
+	fs := vfstest.FromMap(map[string]string{
+		"/repo/.pnp.cjs": "",
+		"/repo/.pnp.data.json": `{
+			"dependencyTreeRoots": [{"name": "app", "reference": "workspace:app"}],
+			"ignorePatternData": null,
+			"enableTopLevelFallback": false,
+			"fallbackPool": [],
+			"fallbackExclusionList": [],
+			"packageRegistryData": [
+				[null, [[null, {"packageLocation": "./", "packageDependencies": [], "linkType": "SOFT"}]]],
+				["app", [["workspace:app", {"packageLocation": "./app/", "packageDependencies": [["pkg", "workspace:pkg"]], "linkType": "SOFT"}]]],
+				["pkg", [["workspace:pkg", {"packageLocation": "./pkg/", "packageDependencies": [], "linkType": "SOFT"}]]]
+			]
+		}`,
+		"/repo/app/package.json": `{"name":"app","version":"1.0.0"}`,
+		"/repo/app/src/index.ts": `import { value } from "pkg"; value;`,
+		"/repo/pkg/package.json": `{"name":"pkg","version":"1.0.0","exports":"./src/index.ts"}`,
+		"/repo/pkg/src/index.ts": `export const value = 1;`,
+	}, true)
+	pnpApi := pnp.InitPnpApi(fs, "/repo/app/src/index.ts")
+	if pnpApi == nil {
+		t.Fatal("expected PnP API")
+	}
+	host := &resolutionHostStub{fs: fs, cwd: "/repo", pnpApi: pnpApi}
+	options := &core.CompilerOptions{
+		ModuleResolution: core.ModuleResolutionKindBundler,
+		Module:           core.ModuleKindESNext,
+		Target:           core.ScriptTargetESNext,
+	}
+	resolver := module.NewResolver(host, options, "", "")
+
+	resolution, _ := resolver.ResolveModuleName("pkg", "/repo/app/src/index.ts", core.ModuleKindESNext, nil)
+	if !resolution.IsResolved() {
+		t.Fatal("expected pkg to resolve")
+	}
+	if resolution.PackageId.Name != "pkg" || resolution.PackageId.SubModuleName != "src/index.ts" {
+		t.Fatalf("unexpected package id: %+v", resolution.PackageId)
+	}
+}
+
 // blockingFS wraps a vfs.FS and forces FileExists calls for `targetPath` to
 // block on `gate` until released. Each caller sends on `arrived` when it
 // reaches the gate. This is used to deterministically reproduce the

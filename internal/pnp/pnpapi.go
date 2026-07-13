@@ -372,6 +372,13 @@ func (p *PnpApi) IsInPnpModule(toFileName string, fromFileName string) bool {
 	return false
 }
 
+// IsExternalPackagePath reports whether both paths are managed by PnP and belong to different locators.
+func (p *PnpApi) IsExternalPackagePath(toFileName string, fromFileName string) bool {
+	fromLocator, _ := p.FindLocator(fromFileName)
+	toLocator, _ := p.FindLocator(toFileName)
+	return fromLocator != nil && toLocator != nil && *fromLocator != *toLocator
+}
+
 func (p *PnpApi) AppendPnpTypeRoots(nmTypes []string, currentDirectory string, compilerOptions *core.CompilerOptions, nmFromConfig bool) ([]string, bool) {
 	baseDir := compilerOptions.GetBaseDirFromOptions(currentDirectory)
 	pnpTypes := p.GetPnpTypeRoots(baseDir)

@@ -1,15 +1,18 @@
 package compiler_test
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/bundled"
 	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/pnp"
 	"github.com/microsoft/typescript-go/internal/repo"
 	"github.com/microsoft/typescript-go/internal/tsoptions"
 	"github.com/microsoft/typescript-go/internal/tspath"
@@ -17,6 +20,165 @@ import (
 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
 	"gotest.tools/v3/assert"
 )
+
+func TestCompositeProjectAllowsPnpPackageSourceFiles(t *testing.T) {
+	t.Parallel()
+
+	files := map[string]string{
+		"/repo/.pnp.cjs": "",
+		"/repo/.pnp.data.json": `{
+			"__info": [],
+			"dependencyTreeRoots": [{"name": "root", "reference": "workspace:."}],
+			"ignorePatternData": null,
+			"enableTopLevelFallback": true,
+			"fallbackPool": [["pkg", "workspace:pkg"]],
+			"fallbackExclusionList": [],
+			"packageRegistryData": [
+				[null, [[null, {"packageLocation": "./", "packageDependencies": [], "linkType": "SOFT"}]]],
+				["root", [["workspace:.", {"packageLocation": "./", "packageDependencies": [], "linkType": "SOFT"}]]],
+				["app", [["workspace:app", {"packageLocation": "./app/", "packageDependencies": [["app", "workspace:app"]], "linkType": "SOFT"}]]],
+				["pkg", [["workspace:pkg", {"packageLocation": "./pkg/", "packageDependencies": [], "linkType": "SOFT"}]]]
+			]
+		}`,
+		"/repo/app/package.json":    `{"name":"app","version":"0.0.0","exports":"./src/index.ts"}`,
+		"/repo/app/src/consumer.ts": `import { value } from "app"; value;`,
+		"/repo/app/src/index.ts":    `import { value } from "pkg"; export { value };`,
+		"/repo/app/tsconfig.json":   `{}`,
+		"/repo/pkg/package.json":    `{"name":"pkg","version":"1.0.0","exports":"./src/index.ts"}`,
+		"/repo/pkg/src/index.ts":    `export { value } from "./value";`,
+		"/repo/pkg/src/value.ts":    `export const value = 1;`,
+	}
+
+	fs := vfstest.FromMap(files, true /*useCaseSensitiveFileNames*/)
+	pnpApi := pnp.InitPnpApi(fs, "/repo/app/src/index.ts")
+	assert.Assert(t, pnpApi != nil)
+
+	opts := core.CompilerOptions{
+		Composite:        core.TSTrue,
+		ConfigFilePath:   "/repo/app/tsconfig.json",
+		Declaration:      core.TSTrue,
+		Incremental:      core.TSTrue,
+		Module:           core.ModuleKindESNext,
+		ModuleResolution: core.ModuleResolutionKindBundler,
+		NoLib:            core.TSTrue,
+		Target:           core.ScriptTargetESNext,
+	}
+	host := compiler.NewCompilerHost("/repo/app", fs, bundled.LibPath(), nil, pnpApi, nil)
+	program := compiler.NewProgram(compiler.ProgramOptions{
+		Config: &tsoptions.ParsedCommandLine{
+			ParsedConfig: &core.ParsedOptions{
+				FileNames:       []string{"/repo/app/src/consumer.ts", "/repo/app/src/index.ts"},
+				CompilerOptions: &opts,
+			},
+		},
+		Host: host,
+	})
+
+	assert.Equal(t, len(program.GetSemanticDiagnostics(context.Background(), nil)), 0)
+	appIndex := program.GetSourceFile("/repo/app/src/index.ts")
+	assert.Assert(t, appIndex != nil)
+	assert.Assert(t, !program.IsSourceFileFromExternalLibrary(appIndex))
+	packageValue := program.GetSourceFile("/repo/pkg/src/value.ts")
+	assert.Assert(t, packageValue != nil)
+	assert.Assert(t, program.IsSourceFileFromExternalLibrary(packageValue))
+	for _, diagnostic := range program.GetIncludeProcessorDiagnostics(appIndex) {
+		assert.Assert(t, diagnostic.Code() != 6307, "unexpected TS6307 with message key %q", diagnostic.MessageKey())
+	}
+
+	emitResult := program.Emit(context.Background(), compiler.EmitOptions{
+		WriteFile: func(fileName string, text string, data *compiler.WriteFileData) error {
+			return nil
+		},
+	})
+	assert.Assert(t, slices.Contains(emitResult.EmittedFiles, "/repo/app/src/index.js"))
+	for _, emittedFile := range emitResult.EmittedFiles {
+		assert.Assert(t, !strings.HasPrefix(emittedFile, "/repo/pkg/"), "unexpected package source emit %q", emittedFile)
+	}
+}
+
+func TestNonPnpPackageResolutionRemainsProjectSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		packageJSON string
+		specifier   string
+	}{
+		{
+			name:        "package imports",
+			packageJSON: `{"name":"local-app","version":"1.0.0","type":"module","imports":{"#value":"./src/value.ts"}}`,
+			specifier:   "#value",
+		},
+		{
+			name:        "package self name",
+			packageJSON: `{"name":"local-app","version":"1.0.0","type":"module","exports":{"./value":"./src/value.ts"}}`,
+			specifier:   "local-app/value",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := map[string]string{
+				"/repo/package.json":  test.packageJSON,
+				"/repo/src/index.ts":  fmt.Sprintf(`import { value } from %q; export { value };`, test.specifier),
+				"/repo/src/value.ts":  `export const value = 1;`,
+				"/repo/tsconfig.json": `{}`,
+			}
+
+			newProgram := func(composite bool) *compiler.Program {
+				fs := vfstest.FromMap(files, true /*useCaseSensitiveFileNames*/)
+				options := core.CompilerOptions{
+					ConfigFilePath:   "/repo/tsconfig.json",
+					Module:           core.ModuleKindNodeNext,
+					ModuleResolution: core.ModuleResolutionKindNodeNext,
+					NoLib:            core.TSTrue,
+					OutDir:           "/repo/dist",
+					RootDir:          "/repo/src",
+					Target:           core.ScriptTargetESNext,
+				}
+				if composite {
+					options.Composite = core.TSTrue
+					options.Declaration = core.TSTrue
+					options.Incremental = core.TSTrue
+				}
+				host := compiler.NewCompilerHost("/repo", fs, bundled.LibPath(), nil, nil, nil)
+				return compiler.NewProgram(compiler.ProgramOptions{
+					Config: &tsoptions.ParsedCommandLine{
+						ParsedConfig: &core.ParsedOptions{
+							FileNames:       []string{"/repo/src/index.ts"},
+							CompilerOptions: &options,
+						},
+					},
+					Host: host,
+				})
+			}
+
+			program := newProgram(false)
+			valueFile := program.GetSourceFile("/repo/src/value.ts")
+			assert.Assert(t, valueFile != nil)
+			assert.Assert(t, !program.IsSourceFileFromExternalLibrary(valueFile))
+			emitResult := program.Emit(context.Background(), compiler.EmitOptions{
+				WriteFile: func(fileName string, text string, data *compiler.WriteFileData) error {
+					return nil
+				},
+			})
+			assert.Assert(t, slices.Contains(emitResult.EmittedFiles, "/repo/dist/index.js"))
+			assert.Assert(t, slices.Contains(emitResult.EmittedFiles, "/repo/dist/value.js"))
+
+			compositeProgram := newProgram(true)
+			compositeIndexFile := compositeProgram.GetSourceFile("/repo/src/index.ts")
+			assert.Assert(t, compositeIndexFile != nil)
+			compositeValueFile := compositeProgram.GetSourceFile("/repo/src/value.ts")
+			assert.Assert(t, compositeValueFile != nil)
+			assert.Assert(t, !compositeProgram.IsSourceFileFromExternalLibrary(compositeValueFile))
+			assert.Assert(t, slices.ContainsFunc(compositeProgram.GetIncludeProcessorDiagnostics(compositeIndexFile), func(diagnostic *ast.Diagnostic) bool {
+				return diagnostic.Code() == 6307
+			}))
+		})
+	}
+}
 
 type testFile struct {
 	fileName string

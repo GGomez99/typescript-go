@@ -1868,8 +1868,17 @@ func (r *resolutionState) getPackageId(resolvedFileName string, packageInfo *pac
 		if name, ok := packageJsonContent.Name.GetValue(); ok {
 			if version, ok := packageJsonContent.Version.GetValue(); ok {
 				var subModuleName string
-				if len(resolvedFileName) > len(packageInfo.PackageDirectory) {
-					subModuleName = resolvedFileName[len(packageInfo.PackageDirectory)+1:]
+				packageDirectory := tspath.RemoveTrailingDirectorySeparator(tspath.NormalizePath(packageInfo.PackageDirectory))
+				resolvedFileName = tspath.NormalizePath(resolvedFileName)
+				comparePathsOptions := tspath.ComparePathsOptions{
+					CurrentDirectory:          r.resolver.host.GetCurrentDirectory(),
+					UseCaseSensitiveFileNames: r.resolver.host.FS().UseCaseSensitiveFileNames(),
+				}
+				if tspath.ComparePaths(resolvedFileName, packageDirectory, comparePathsOptions) != 0 {
+					relativePath := tspath.GetRelativePathFromDirectory(packageDirectory, resolvedFileName, comparePathsOptions)
+					if relativePath != ".." && !strings.HasPrefix(relativePath, "../") {
+						subModuleName = relativePath
+					}
 				}
 				return PackageId{
 					Name:             name,
@@ -1996,7 +2005,7 @@ func (r *resolutionState) isExternalLibraryImport(resolved *resolved) bool {
 
 	pnpApi := r.resolver.host.PnpApi()
 	if pnpApi != nil && !isExternalLibraryImport {
-		isExternalLibraryImport = pnpApi.IsInPnpModule(resolved.path, r.containingDirectory)
+		isExternalLibraryImport = pnpApi.IsExternalPackagePath(resolved.path, r.containingDirectory)
 	}
 
 	return isExternalLibraryImport
