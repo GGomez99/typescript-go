@@ -1,6 +1,7 @@
 package compiler_test
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -33,16 +34,17 @@ func TestCompositeProjectAllowsPnpPackageSourceFiles(t *testing.T) {
 			"packageRegistryData": [
 				[null, [[null, {"packageLocation": "./", "packageDependencies": [], "linkType": "SOFT"}]]],
 				["root", [["workspace:.", {"packageLocation": "./", "packageDependencies": [], "linkType": "SOFT"}]]],
-				["app", [["workspace:app", {"packageLocation": "./app/", "packageDependencies": [], "linkType": "SOFT"}]]],
+				["app", [["workspace:app", {"packageLocation": "./app/", "packageDependencies": [["app", "workspace:app"]], "linkType": "SOFT"}]]],
 				["pkg", [["workspace:pkg", {"packageLocation": "./pkg/", "packageDependencies": [], "linkType": "SOFT"}]]]
 			]
 		}`,
-		"/repo/app/package.json":  `{"name":"app","version":"0.0.0"}`,
-		"/repo/app/src/index.ts":  `import { value } from "pkg"; value;`,
-		"/repo/app/tsconfig.json": `{}`,
-		"/repo/pkg/package.json":  `{"name":"pkg","version":"1.0.0","exports":"./src/index.ts"}`,
-		"/repo/pkg/src/index.ts":  `export { value } from "./value";`,
-		"/repo/pkg/src/value.ts":  `export const value = 1;`,
+		"/repo/app/package.json":    `{"name":"app","version":"0.0.0","exports":"./src/index.ts"}`,
+		"/repo/app/src/consumer.ts": `import { value } from "app"; value;`,
+		"/repo/app/src/index.ts":    `import { value } from "pkg"; export { value };`,
+		"/repo/app/tsconfig.json":   `{}`,
+		"/repo/pkg/package.json":    `{"name":"pkg","version":"1.0.0","exports":"./src/index.ts"}`,
+		"/repo/pkg/src/index.ts":    `export { value } from "./value";`,
+		"/repo/pkg/src/value.ts":    `export const value = 1;`,
 	}
 
 	fs := vfstest.FromMap(files, true /*useCaseSensitiveFileNames*/)
@@ -63,7 +65,7 @@ func TestCompositeProjectAllowsPnpPackageSourceFiles(t *testing.T) {
 	program := compiler.NewProgram(compiler.ProgramOptions{
 		Config: &tsoptions.ParsedCommandLine{
 			ParsedConfig: &core.ParsedOptions{
-				FileNames:       []string{"/repo/app/src/index.ts"},
+				FileNames:       []string{"/repo/app/src/consumer.ts", "/repo/app/src/index.ts"},
 				CompilerOptions: &opts,
 			},
 		},
@@ -72,6 +74,23 @@ func TestCompositeProjectAllowsPnpPackageSourceFiles(t *testing.T) {
 
 	for _, diagnostic := range program.GetProgramDiagnostics() {
 		assert.Assert(t, diagnostic.Code() != 6307, "unexpected TS6307 with message key %q", diagnostic.MessageKey())
+	}
+	assert.Equal(t, len(program.GetSemanticDiagnostics(context.Background(), nil)), 0)
+	appIndex := program.GetSourceFile("/repo/app/src/index.ts")
+	assert.Assert(t, appIndex != nil)
+	assert.Assert(t, !program.IsSourceFileFromExternalLibrary(appIndex))
+	packageValue := program.GetSourceFile("/repo/pkg/src/value.ts")
+	assert.Assert(t, packageValue != nil)
+	assert.Assert(t, program.IsSourceFileFromExternalLibrary(packageValue))
+
+	emitResult := program.Emit(context.Background(), compiler.EmitOptions{
+		WriteFile: func(fileName string, text string, data *compiler.WriteFileData) error {
+			return nil
+		},
+	})
+	assert.Assert(t, slices.Contains(emitResult.EmittedFiles, "/repo/app/src/index.js"))
+	for _, emittedFile := range emitResult.EmittedFiles {
+		assert.Assert(t, !strings.HasPrefix(emittedFile, "/repo/pkg/"), "unexpected package source emit %q", emittedFile)
 	}
 }
 

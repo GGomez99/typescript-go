@@ -342,6 +342,10 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 	var importHelpersImportSpecifiers map[tspath.Path]*ast.StringLiteralNode
 	var sourceFilesFoundSearchingNodeModules collections.Set[tspath.Path]
 	var sourceFilesFoundByPackageId collections.Set[tspath.Path]
+	var rootPaths collections.Set[tspath.Path]
+	for _, fileName := range loader.opts.Config.FileNames() {
+		rootPaths.Add(loader.toPath(fileName))
+	}
 	libFilesMap := make(map[tspath.Path]*LibFile, libFileCount)
 
 	var redirectTargetsMap map[tspath.Path][]string
@@ -465,7 +469,7 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 
 			path := task.path
 
-			if data.foundByPackageId {
+			if data.foundByPackageId && !rootPaths.Has(path) {
 				sourceFilesFoundByPackageId.Add(path)
 			}
 			if len(task.processingDiagnostics) > 0 {
