@@ -213,6 +213,10 @@ func (r *Resolver) GetPackageScopeForPath(directory string) *packagejson.InfoCac
 	return (&resolutionState{compilerOptions: r.compilerOptions, resolver: r}).getPackageScopeForPath(directory)
 }
 
+func (r *Resolver) PackageJsonCacheEntries(f func(key tspath.Path, value *packagejson.InfoCacheEntry) bool) {
+	r.caches.packageJsonInfoCache.Range(f)
+}
+
 func (r *tracer) traceResolutionUsingProjectReference(redirectedReference ResolvedProjectReference) {
 	if redirectedReference != nil && redirectedReference.CompilerOptions() != nil {
 		r.write(diagnostics.Using_compiler_options_of_project_reference_redirect_0, redirectedReference.ConfigName())
@@ -380,14 +384,16 @@ func (r *tracer) traceTypeReferenceDirectiveResult(typeReferenceDirectiveName st
 	if !result.IsResolved() {
 		r.write(diagnostics.Type_reference_directive_0_was_not_resolved, typeReferenceDirectiveName)
 	} else if result.PackageId.Name != "" {
-		r.write(diagnostics.Type_reference_directive_0_was_successfully_resolved_to_1_with_Package_ID_2_primary_Colon_3,
+		r.write(
+			diagnostics.Type_reference_directive_0_was_successfully_resolved_to_1_with_Package_ID_2_primary_Colon_3,
 			typeReferenceDirectiveName,
 			result.ResolvedFileName,
 			result.PackageId.String(),
 			result.Primary,
 		)
 	} else {
-		r.write(diagnostics.Type_reference_directive_0_was_successfully_resolved_to_1_primary_Colon_2,
+		r.write(
+			diagnostics.Type_reference_directive_0_was_successfully_resolved_to_1_primary_Colon_2,
 			typeReferenceDirectiveName,
 			result.ResolvedFileName,
 			result.Primary,
@@ -914,7 +920,8 @@ func (r *resolutionState) tryLoadInputFileForPath(finalPath string, entry string
 			diagnostic := ast.NewDiagnostic(
 				nil,
 				core.TextRange{},
-				core.IfElse(isImports,
+				core.IfElse(
+					isImports,
 					diagnostics.The_project_root_is_ambiguous_but_is_required_to_resolve_import_map_entry_0_in_file_1_Supply_the_rootDir_compiler_option_to_disambiguate,
 					diagnostics.The_project_root_is_ambiguous_but_is_required_to_resolve_export_map_entry_0_in_file_1_Supply_the_rootDir_compiler_option_to_disambiguate,
 				),
@@ -932,7 +939,10 @@ func (r *resolutionState) tryLoadInputFileForPath(finalPath string, entry string
 				CurrentDirectory:          r.resolver.host.GetCurrentDirectory(),
 			}) {
 				// The matched export is looking up something in either the out declaration or js dir, now map the written path back into the source dir and source extension
-				pathFragment := finalPath[len(candidateDir)+1:] // +1 to also remove directory separator
+				var pathFragment string
+				if len(finalPath) > len(candidateDir) {
+					pathFragment = finalPath[len(candidateDir)+1:] // +1 to also remove directory separator
+				}
 				possibleInputBase := tspath.CombinePaths(rootDir, pathFragment)
 				jsAndDtsExtensions := []string{tspath.ExtensionMjs, tspath.ExtensionCjs, tspath.ExtensionJs, tspath.ExtensionJson, tspath.ExtensionDmts, tspath.ExtensionDcts, tspath.ExtensionDts}
 				for _, ext := range jsAndDtsExtensions {
@@ -1183,7 +1193,7 @@ func (r *resolutionState) loadModuleFromSpecificNodeModulesDirectoryImpl(ext ext
 			// https://github.com/microsoft/TypeScript/pull/49327
 			return r.loadModuleFromExports(packageInfo, ext, tspath.CombinePaths(".", rest))
 		}
-		if rest != "" {
+		if rest != "" && packageInfo.Exists() {
 			versionPaths := packageInfo.Contents.GetVersionPaths(r.getTraceFunc())
 			if versionPaths.Exists() {
 				if r.tracer != nil {
@@ -1813,15 +1823,7 @@ func (r *resolutionState) getPackageJsonInfo(packageDirectory string) *packagejs
 			if r.tracer != nil {
 				r.tracer.write(diagnostics.File_0_exists_according_to_earlier_cached_lookups, packageJsonPath)
 			}
-			if existing.PackageDirectory == packageDirectory {
-				return existing
-			}
-			// https://github.com/microsoft/TypeScript/pull/50740
-			return &packagejson.InfoCacheEntry{
-				PackageDirectory: packageDirectory,
-				DirectoryExists:  true,
-				Contents:         existing.Contents,
-			}
+			return existing.WithPackageDirectory(packageDirectory)
 		} else {
 			if existing.DirectoryExists && r.tracer != nil {
 				r.tracer.write(diagnostics.File_0_does_not_exist_according_to_earlier_cached_lookups, packageJsonPath)
@@ -1847,7 +1849,7 @@ func (r *resolutionState) getPackageJsonInfo(packageDirectory string) *packagejs
 			},
 		}
 		result = r.resolver.packageJsonInfoCache.Set(packageJsonPath, result)
-		return result
+		return result.WithPackageDirectory(packageDirectory)
 	} else {
 		if directoryExists && r.tracer != nil {
 			r.tracer.write(diagnostics.File_0_does_not_exist, packageJsonPath)
@@ -1928,7 +1930,7 @@ func (r *resolutionState) readPackageJsonPeerDependencies(packageJsonInfo *packa
 		}
 
 		peerPackageJson := r.getPackageJsonInfo(peerDependencyPath)
-		if peerPackageJson != nil {
+		if peerPackageJson.Exists() {
 			version := peerPackageJson.Contents.Version.Value
 			builder.WriteString("+")
 			builder.WriteString(name)
@@ -2064,7 +2066,10 @@ func getNodeResolutionFeatures(options *core.CompilerOptions) NodeResolutionFeat
 
 func moveToNextDirectorySeparatorIfAvailable(path string, prevSeparatorIndex int, isFolder bool) int {
 	offset := prevSeparatorIndex + 1
-	nextSeparatorIndex := strings.Index(path[offset:], "/")
+	nextSeparatorIndex := -1
+	if offset <= len(path) {
+		nextSeparatorIndex = strings.Index(path[offset:], "/")
+	}
 	if nextSeparatorIndex == -1 {
 		if isFolder {
 			return len(path)
@@ -2258,7 +2263,7 @@ func (e *ResolvedEntrypoint) SymlinkOrRealpath() string {
 	return e.ResolvedFileName
 }
 
-func (r *Resolver) GetEntrypointsFromPackageJsonInfo(packageJson *packagejson.InfoCacheEntry, packageName string) []*ResolvedEntrypoint {
+func (r *Resolver) GetEntrypointsFromPackageJsonInfo(packageJson *packagejson.InfoCacheEntry, packageName string, enableDirectorySearch bool) []*ResolvedEntrypoint {
 	extensions := extensionsTypeScript | extensionsDeclaration
 	features := NodeResolutionFeaturesAll
 	state := &resolutionState{resolver: r, extensions: extensions, features: features, compilerOptions: r.compilerOptions}
@@ -2274,16 +2279,6 @@ func (r *Resolver) GetEntrypointsFromPackageJsonInfo(packageJson *packagejson.In
 		packageJson,
 	)
 
-	otherFiles := vfsmatch.ReadDirectory(
-		r.host.FS(),
-		r.host.GetCurrentDirectory(),
-		packageJson.PackageDirectory,
-		extensions.Array(),
-		[]string{"node_modules"},
-		[]string{"**/*"},
-		vfsmatch.UnlimitedDepth,
-	)
-
 	if mainResolution.isResolved() {
 		result = append(result, r.createResolvedEntrypointHandlingSymlink(
 			mainResolution.path,
@@ -2294,19 +2289,31 @@ func (r *Resolver) GetEntrypointsFromPackageJsonInfo(packageJson *packagejson.In
 		))
 	}
 
-	comparePathsOptions := tspath.ComparePathsOptions{UseCaseSensitiveFileNames: r.host.FS().UseCaseSensitiveFileNames()}
-	for _, file := range otherFiles {
-		if mainResolution.isResolved() && tspath.ComparePaths(file, mainResolution.path, comparePathsOptions) == 0 {
-			continue
-		}
+	if enableDirectorySearch {
+		otherFiles := vfsmatch.ReadDirectory(
+			r.host.FS(),
+			r.host.GetCurrentDirectory(),
+			packageJson.PackageDirectory,
+			extensions.Array(),
+			[]string{"node_modules"},
+			[]string{"**/*"},
+			vfsmatch.UnlimitedDepth,
+		)
 
-		result = append(result, r.createResolvedEntrypointHandlingSymlink(
-			file,
-			tspath.ResolvePath(packageName, tspath.GetRelativePathFromDirectory(packageJson.PackageDirectory, file, comparePathsOptions)),
-			nil,
-			nil,
-			EndingChangeable,
-		))
+		comparePathsOptions := tspath.ComparePathsOptions{UseCaseSensitiveFileNames: r.host.FS().UseCaseSensitiveFileNames()}
+		for _, file := range otherFiles {
+			if mainResolution.isResolved() && tspath.ComparePaths(file, mainResolution.path, comparePathsOptions) == 0 {
+				continue
+			}
+
+			result = append(result, r.createResolvedEntrypointHandlingSymlink(
+				file,
+				tspath.ResolvePath(packageName, tspath.GetRelativePathFromDirectory(packageJson.PackageDirectory, file, comparePathsOptions)),
+				nil,
+				nil,
+				EndingChangeable,
+			))
+		}
 	}
 
 	if len(result) > 0 {
@@ -2403,7 +2410,7 @@ func (r *resolutionState) loadEntrypointsFromExportMap(
 
 				conditionAlwaysMatches := condition == "default" || condition == "types" || IsApplicableVersionedTypesKey(condition)
 				newIncludeConditions := includeConditions
-				if !(conditionAlwaysMatches) {
+				if !conditionAlwaysMatches {
 					newIncludeConditions = includeConditions.Clone()
 					excludeConditions = excludeConditions.Clone()
 					if newIncludeConditions == nil {

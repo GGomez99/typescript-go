@@ -14,6 +14,7 @@ import {
 import {
     NODE_EXTENDED_DATA_MASK,
     type SourceFileInfo,
+    type TextDecoder,
 } from "./node.infrastructure.ts";
 import {
     HEADER_OFFSET_EXTENDED_DATA,
@@ -21,8 +22,12 @@ import {
     HEADER_OFFSET_STRING_TABLE,
     HEADER_OFFSET_STRING_TABLE_OFFSETS,
     HEADER_OFFSET_STRUCTURED_DATA,
+    KIND_NODE_LIST,
     NODE_LEN,
+    NODE_OFFSET_KIND,
+    NODE_OFFSET_PARENT,
 } from "./protocol.ts";
+import { Wtf8Decoder } from "./wtf8.ts";
 
 // Re-export everything consumers need from the other two files.
 export { RemoteNode, RemoteNodeList } from "./node.generated.ts";
@@ -42,6 +47,13 @@ export class RemoteSourceFile extends RemoteNode implements SourceFileInfo {
     readonly _offsetExtendedData: number;
     readonly _offsetStructuredData: number;
     readonly _decoder: TextDecoder;
+    private _cachedText: string | undefined;
+    private _cachedReferencedFiles: readonly FileReference[] | undefined;
+    private _cachedTypeReferenceDirectives: readonly FileReference[] | undefined;
+    private _cachedLibReferenceDirectives: readonly FileReference[] | undefined;
+    private _cachedImports: readonly Node[] | undefined;
+    private _cachedModuleAugmentations: readonly Node[] | undefined;
+    private _cachedAmbientModuleNames: readonly string[] | undefined;
 
     constructor(data: Uint8Array, decoder: TextDecoder) {
         const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -111,7 +123,21 @@ export class RemoteSourceFile extends RemoteNode implements SourceFileInfo {
     getOrCreateNodeAtIndex(index: number): Node {
         let node = this.nodes[index];
         if (!node) {
-            node = new RemoteNode(this.view, index, this, this, this._offsetNodes);
+            // Resolve the real parent so that nodes looked up directly by index (e.g. via
+            // NodeHandle.resolve) report the correct `parent`, rather than always pointing at
+            // the source file. The stored parent index can refer to a synthetic NodeList
+            // container; skip those to mirror normal traversal, where list elements take the
+            // list's parent. The walk terminates at the source file, which occupies index 1
+            // and is already cached.
+            let parentIndex = this.view.getUint32(this._offsetNodes + index * NODE_LEN + NODE_OFFSET_PARENT, true);
+            while (
+                parentIndex !== index &&
+                this.view.getUint32(this._offsetNodes + parentIndex * NODE_LEN + NODE_OFFSET_KIND, true) === KIND_NODE_LIST
+            ) {
+                parentIndex = this.view.getUint32(this._offsetNodes + parentIndex * NODE_LEN + NODE_OFFSET_PARENT, true);
+            }
+            const parent = parentIndex === index ? this : this.getOrCreateNodeAtIndex(parentIndex) as RemoteNode;
+            node = new RemoteNode(this.view, index, parent, this, this._offsetNodes);
             this.nodes[index] = node;
         }
         return node as Node;
@@ -142,33 +168,51 @@ export class RemoteSourceFile extends RemoteNode implements SourceFileInfo {
     }
 
     get referencedFiles(): readonly FileReference[] {
+        if (this._cachedReferencedFiles !== undefined) return this._cachedReferencedFiles;
         const offset = this.view.getUint32(this.extendedDataOffset + 20, true);
-        return this.readFileReferences(offset);
+        const files = this.readFileReferences(offset);
+        this._cachedReferencedFiles = files;
+        return files;
     }
 
     get typeReferenceDirectives(): readonly FileReference[] {
+        if (this._cachedTypeReferenceDirectives !== undefined) return this._cachedTypeReferenceDirectives;
         const offset = this.view.getUint32(this.extendedDataOffset + 24, true);
-        return this.readFileReferences(offset);
+        const directives = this.readFileReferences(offset);
+        this._cachedTypeReferenceDirectives = directives;
+        return directives;
     }
 
     get libReferenceDirectives(): readonly FileReference[] {
+        if (this._cachedLibReferenceDirectives !== undefined) return this._cachedLibReferenceDirectives;
         const offset = this.view.getUint32(this.extendedDataOffset + 28, true);
-        return this.readFileReferences(offset);
+        const directives = this.readFileReferences(offset);
+        this._cachedLibReferenceDirectives = directives;
+        return directives;
     }
 
     get imports(): readonly Node[] {
+        if (this._cachedImports !== undefined) return this._cachedImports;
         const offset = this.view.getUint32(this.extendedDataOffset + 32, true);
-        return this.readNodeIndexArray(offset);
+        const imports = this.readNodeIndexArray(offset);
+        this._cachedImports = imports;
+        return imports;
     }
 
     get moduleAugmentations(): readonly Node[] {
+        if (this._cachedModuleAugmentations !== undefined) return this._cachedModuleAugmentations;
         const offset = this.view.getUint32(this.extendedDataOffset + 36, true);
-        return this.readNodeIndexArray(offset);
+        const moduleAugmentations = this.readNodeIndexArray(offset);
+        this._cachedModuleAugmentations = moduleAugmentations;
+        return moduleAugmentations;
     }
 
     get ambientModuleNames(): readonly string[] {
+        if (this._cachedAmbientModuleNames !== undefined) return this._cachedAmbientModuleNames;
         const offset = this.view.getUint32(this.extendedDataOffset + 40, true);
-        return this.readStringArray(offset);
+        const names = this.readStringArray(offset);
+        this._cachedAmbientModuleNames = names;
+        return names;
     }
 
     get externalModuleIndicator(): Node | true | undefined {
@@ -180,6 +224,13 @@ export class RemoteSourceFile extends RemoteNode implements SourceFileInfo {
 
     get isDeclarationFile(): boolean {
         return (this.flags & NodeFlags.Ambient) !== 0;
+    }
+
+    get text(): string {
+        if (this._cachedText !== undefined) return this._cachedText;
+        const text = super.text!;
+        this._cachedText = text;
+        return text;
     }
 }
 
@@ -209,30 +260,29 @@ export function findDescendant(root: Node, pos: number, end: number, kind: Synta
  * Parsed components of a node handle.
  */
 export interface ParsedNodeHandle {
-    pos: number;
-    end: number;
+    index: number;
     kind: SyntaxKind;
     path: Path;
 }
 
 /**
  * Parse a node handle string into its components.
- * Handle format: "pos.end.kind.path" where path may contain dots.
+ * Handle format: "index.kind.path" where path may contain dots.
  */
 export function parseNodeHandle(handle: string): ParsedNodeHandle {
-    const dot1 = handle.indexOf(".");
-    const dot2 = handle.indexOf(".", dot1 + 1);
-    const dot3 = handle.indexOf(".", dot2 + 1);
-
-    if (dot1 === -1 || dot2 === -1 || dot3 === -1) {
+    const firstDot = handle.indexOf(".");
+    if (firstDot === -1) {
+        throw new Error(`Invalid node handle: ${handle}`);
+    }
+    const secondDot = handle.indexOf(".", firstDot + 1);
+    if (secondDot === -1) {
         throw new Error(`Invalid node handle: ${handle}`);
     }
 
     return {
-        pos: parseInt(handle.slice(0, dot1), 10),
-        end: parseInt(handle.slice(dot1 + 1, dot2), 10),
-        kind: parseInt(handle.slice(dot2 + 1, dot3), 10) as SyntaxKind,
-        path: handle.slice(dot3 + 1) as Path,
+        index: parseInt(handle.slice(0, firstDot), 10),
+        kind: parseInt(handle.slice(firstDot + 1, secondDot), 10) as SyntaxKind,
+        path: handle.slice(secondDot + 1) as Path,
     };
 }
 
@@ -242,7 +292,7 @@ export function parseNodeHandle(handle: string): ParsedNodeHandle {
  * (e.g. from typeToTypeNode) that don't have a source file.
  */
 export function decodeNode(data: Uint8Array): Node {
-    const sf = new RemoteSourceFile(data, new TextDecoder());
+    const sf = new RemoteSourceFile(data, new Wtf8Decoder());
     return sf as unknown as Node;
 }
 

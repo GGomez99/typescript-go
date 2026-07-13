@@ -46,6 +46,13 @@ func findBrokenPeerDependencies(specifier string, parent *Locator) []Locator {
 	return []Locator{}
 }
 
+func (p *PnpApi) GetManifestPath() string {
+	if p.manifest == nil {
+		return ""
+	}
+	return tspath.CombinePaths(p.manifest.dirPath, ".pnp.cjs")
+}
+
 func (p *PnpApi) RefreshManifest() error {
 	var newData *PnpManifestData
 	var err error
@@ -144,12 +151,8 @@ func (p *PnpApi) ResolveToUnqualified(specifier string, parentPath string) (stri
 		}
 	}
 
-	var dependencyPkg *PackageInfo
-	if referenceOrAlias.IsAlias() {
-		dependencyPkg = p.GetPackage(&Locator{Name: referenceOrAlias.AliasName, Reference: referenceOrAlias.Reference})
-	} else {
-		dependencyPkg = p.GetPackage(&Locator{Name: referenceOrAlias.Ident, Reference: referenceOrAlias.Reference})
-	}
+	dependencyLocator := referenceOrAlias.Locator()
+	dependencyPkg := p.GetPackage(&dependencyLocator)
 
 	return tspath.ResolvePath(p.manifest.dirPath, dependencyPkg.PackageLocation, modulePath), nil
 }
@@ -242,12 +245,8 @@ func (p *PnpApi) ResolveViaFallback(name string) *PackageDependency {
 	}
 
 	for _, dep := range p.manifest.fallbackPool {
-		if dep[0] == name {
-			return &PackageDependency{
-				Ident:     dep[0],
-				Reference: dep[1],
-				AliasName: "",
-			}
+		if dep.Ident == name {
+			return &dep
 		}
 	}
 
@@ -309,7 +308,8 @@ func (p *PnpApi) GetPnpTypeRoots(currentDirectory string) []string {
 	typeRoots := []string{}
 	for _, dep := range packageDependencies {
 		if strings.HasPrefix(dep.Ident, "@types/") && dep.Reference != "" {
-			packageInfo := p.GetPackage(&Locator{Name: dep.Ident, Reference: dep.Reference})
+			dependencyLocator := dep.Locator()
+			packageInfo := p.GetPackage(&dependencyLocator)
 			typeRoots = append(typeRoots, tspath.GetDirectoryPath(
 				tspath.ResolvePath(p.manifest.dirPath, packageInfo.PackageLocation),
 			))
