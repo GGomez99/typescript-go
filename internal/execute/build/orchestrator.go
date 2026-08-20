@@ -12,6 +12,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/compiler"
+	"github.com/microsoft/typescript-go/internal/contentmapper"
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
 	"github.com/microsoft/typescript-go/internal/execute/incremental"
@@ -63,6 +64,11 @@ type Orchestrator struct {
 	opts                Options
 	comparePathsOptions tspath.ComparePathsOptions
 	host                *host
+
+	// contentMapperHost transforms content-mapped files; it is created once per build session (when
+	// enabled) and shared across all projects so mapper processes are consolidated. It closes itself when
+	// the session context is cancelled (see contentmapper.New).
+	contentMapperHost contentmapper.Host
 
 	// order generation result
 	tasks  *collections.SyncMap[tspath.Path, *BuildTask]
@@ -133,6 +139,9 @@ func (o *Orchestrator) createBuildTasks(oldTasks *collections.SyncMap[tspath.Pat
 						// Reuse existing task if config is same
 						task = existing
 					} else {
+						if existing.contentMapperProject != nil {
+							_ = existing.contentMapperProject.Close()
+						}
 						buildInfo = existing.buildInfoEntry
 					}
 				}
@@ -222,9 +231,24 @@ func (o *Orchestrator) GenerateGraph(oldTasks *collections.SyncMap[tspath.Path, 
 	for _, project := range projects {
 		o.setupBuildTask(project, nil, false, &completed, &analyzing, circularityStack)
 	}
+	if oldTasks != nil {
+		oldTasks.Range(func(path tspath.Path, oldTask *BuildTask) bool {
+			if task, ok := o.tasks.Load(path); ok && task == oldTask {
+				return true
+			}
+			if oldTask.contentMapperProject != nil {
+				_ = oldTask.contentMapperProject.Close()
+			}
+			return true
+		})
+	}
 }
 
 func (o *Orchestrator) Start(ctx context.Context) tsc.CommandLineResult {
+	o.contentMapperHost = tsc.NewContentMapperHost(ctx, o.opts.Sys, o.opts.Command.CompilerOptions)
+	if o.contentMapperHost != nil && (!o.opts.Command.CompilerOptions.Watch.IsTrue() || o.opts.Testing == nil) {
+		defer o.contentMapperHost.Close()
+	}
 	if o.opts.Command.CompilerOptions.Watch.IsTrue() {
 		o.watchStatusReporter(ast.NewCompilerDiagnostic(diagnostics.Starting_compilation_in_watch_mode))
 	}
@@ -316,8 +340,42 @@ func (o *Orchestrator) checkTasksForEventChanges(changedPaths map[string]fswatch
 		if configChanged {
 			continue
 		}
+		for _, mapper := range task.resolved.ContentMappers() {
+			if mapper.PackageDirectory == "" || mapper.ContributionID != "" {
+				continue
+			}
+			manifestPath := o.toPath(tspath.CombinePaths(mapper.PackageDirectory, "package.json"))
+			if _, changed := normalizedPaths[manifestPath]; changed {
+				task.resetConfig(o, path)
+				needsConfigUpdate.Store(true)
+				needsUpdate.Store(true)
+				configChanged = true
+				break
+			}
+		}
+		if configChanged {
+			continue
+		}
 
 		rootChanged := false
+		if task.contentMapperProject != nil {
+			watchedFiles, err := task.contentMapperProject.WatchedFiles()
+			if err != nil {
+				task.contentMapperProjectErr = err
+				task.resetStatus()
+				needsUpdate.Store(true)
+				rootChanged = true
+			}
+			for _, fileName := range watchedFiles {
+				if _, changed := normalizedPaths[o.toPath(fileName)]; changed {
+					task.refreshContentMapperProject(o)
+					task.resetStatus()
+					needsUpdate.Store(true)
+					rootChanged = true
+					break
+				}
+			}
+		}
 		fileNames := task.resolved.FileNames()
 		roots := collections.NewSetWithSizeHint[tspath.Path](len(fileNames))
 		for _, file := range fileNames {
@@ -417,7 +475,7 @@ func (o *Orchestrator) packageJsonLookupChanged(packageJson string, changedPaths
 }
 
 func (o *Orchestrator) computeDesiredWatches() map[string]bool {
-	desiredDirs := make(map[string]bool)
+	desiredDirs := watchmanager.NewDirWatchSet(o.comparePathsOptions)
 
 	for i := range o.order {
 		config := o.order[i]
@@ -427,9 +485,7 @@ func (o *Orchestrator) computeDesiredWatches() map[string]bool {
 		// Watch config file directory
 		configDir := tspath.GetDirectoryPath(task.config)
 		realConfigDir := o.host.FS().Realpath(configDir)
-		if _, has := desiredDirs[realConfigDir]; !has {
-			desiredDirs[realConfigDir] = false
-		}
+		desiredDirs.Set(realConfigDir, false)
 
 		if task.resolved == nil {
 			continue
@@ -439,28 +495,43 @@ func (o *Orchestrator) computeDesiredWatches() map[string]bool {
 		for _, cfgPath := range task.resolved.ExtendedSourceFiles() {
 			realPath := o.host.FS().Realpath(cfgPath)
 			dir := tspath.GetDirectoryPath(realPath)
-			if _, has := desiredDirs[dir]; !has {
-				desiredDirs[dir] = false
-			}
+			desiredDirs.Set(dir, false)
 		}
 
 		// Wildcard directories from tsconfig
 		for dir, recursive := range task.resolved.WildcardDirectories() {
 			realDir := o.host.FS().Realpath(dir)
-			if existing, has := desiredDirs[realDir]; has {
-				desiredDirs[realDir] = existing || recursive
-			} else {
-				desiredDirs[realDir] = recursive
-			}
+			desiredDirs.Set(realDir, recursive)
 		}
 
 		// Input file directories not already covered
 		for _, fileName := range task.resolved.FileNames() {
 			absPath := tspath.GetNormalizedAbsolutePath(fileName, o.opts.Sys.GetCurrentDirectory())
 			dir := tspath.GetDirectoryPath(absPath)
-			if !watchmanager.IsDirCoveredByWatch(desiredDirs, dir, o.comparePathsOptions) {
-				if watchmanager.CanWatchDirectory(dir) {
-					desiredDirs[dir] = false
+			if !desiredDirs.Covered(dir) && watchmanager.CanWatchDirectory(dir) {
+				desiredDirs.Set(dir, false)
+			}
+			for _, mapper := range task.resolved.ContentMappers() {
+				if mapper.PackageDirectory == "" || mapper.ContributionID != "" {
+					continue
+				}
+				manifestPath := o.host.FS().Realpath(tspath.CombinePaths(mapper.PackageDirectory, "package.json"))
+				dir := tspath.GetDirectoryPath(manifestPath)
+				if !desiredDirs.Covered(dir) && watchmanager.CanWatchDirectory(dir) {
+					desiredDirs.Set(dir, false)
+				}
+			}
+		}
+		if task.contentMapperProject != nil {
+			watchedFiles, err := task.contentMapperProject.WatchedFiles()
+			if err != nil {
+				task.contentMapperProjectErr = err
+			}
+			for _, fileName := range watchedFiles {
+				absPath := o.host.FS().Realpath(fileName)
+				dir := tspath.GetDirectoryPath(absPath)
+				if !desiredDirs.Covered(dir) && watchmanager.CanWatchDirectory(dir) {
+					desiredDirs.Set(dir, false)
 				}
 			}
 		}
@@ -479,10 +550,8 @@ func (o *Orchestrator) computeDesiredWatches() map[string]bool {
 					continue
 				}
 				dir := tspath.GetDirectoryPath(absPath)
-				if !watchmanager.IsDirCoveredByWatch(desiredDirs, dir, o.comparePathsOptions) {
-					if watchmanager.CanWatchDirectory(dir) {
-						desiredDirs[dir] = false
-					}
+				if !desiredDirs.Covered(dir) && watchmanager.CanWatchDirectory(dir) {
+					desiredDirs.Set(dir, false)
 				}
 			}
 			for packageJson := range bi.buildInfo.GetPackageJsons(buildInfoDir) {
@@ -497,16 +566,16 @@ func (o *Orchestrator) computeDesiredWatches() map[string]bool {
 		}
 	}
 
-	return o.wm.ResolveDesiredDirs(desiredDirs)
+	return o.wm.ResolveDesiredDirs(desiredDirs.Dirs())
 }
 
-func (o *Orchestrator) addWatchDir(desiredDirs map[string]bool, dir string) {
-	if !watchmanager.IsDirCoveredByWatch(desiredDirs, dir, o.comparePathsOptions) && watchmanager.CanWatchDirectory(dir) {
-		desiredDirs[dir] = false
+func (o *Orchestrator) addWatchDir(desiredDirs *watchmanager.DirWatchSet, dir string) {
+	if !desiredDirs.Covered(dir) && watchmanager.CanWatchDirectory(dir) {
+		desiredDirs.Set(dir, false)
 	}
 }
 
-func (o *Orchestrator) addPackageJsonWatchDirs(desiredDirs map[string]bool, packageJson string) {
+func (o *Orchestrator) addPackageJsonWatchDirs(desiredDirs *watchmanager.DirWatchSet, packageJson string) {
 	dir := tspath.GetDirectoryPath(packageJson)
 	dirs := []string{dir}
 	foundNodeModules := false
@@ -698,6 +767,7 @@ func NewOrchestrator(opts Options) *Orchestrator {
 			orchestrator.opts.Sys.DefaultLibraryPath(),
 			nil,
 			orchestrator.opts.Sys.PnpApi(),
+			nil,
 			nil,
 		),
 		mTimes: &collections.SyncMap[tspath.Path, time.Time]{},

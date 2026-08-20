@@ -2192,14 +2192,22 @@ func (b *NodeBuilderImpl) serializeTypeForDeclaration(declaration *ast.Declarati
 		symbol = b.ch.getSymbolOfDeclaration(declaration)
 	}
 	if t == nil {
-		t = b.ctx.enclosingSymbolTypes[ast.GetSymbolId(symbol)]
-		if t == nil {
-			if symbol.Flags&ast.SymbolFlagsAccessor != 0 && declaration.Kind == ast.KindSetAccessor {
-				t = b.ch.instantiateType(b.ch.getWriteTypeOfSymbol(symbol), b.ctx.mapper)
-			} else if symbol != nil && (symbol.Flags&(ast.SymbolFlagsTypeLiteral|ast.SymbolFlagsSignature) == 0) {
-				t = b.ch.instantiateType(b.ch.getWidenedLiteralType(b.ch.getTypeOfSymbol(symbol)), b.ctx.mapper)
+		if symbol == nil {
+			if ast.IsVariableLike(declaration) {
+				t = b.ch.getTypeForVariableLikeDeclaration(declaration, false, CheckModeNormal)
 			} else {
 				t = b.ch.errorType
+			}
+		} else {
+			t = b.ctx.enclosingSymbolTypes[ast.GetSymbolId(symbol)]
+			if t == nil {
+				if symbol.Flags&ast.SymbolFlagsAccessor != 0 && declaration.Kind == ast.KindSetAccessor {
+					t = b.ch.instantiateType(b.ch.getWriteTypeOfSymbol(symbol), b.ctx.mapper)
+				} else if symbol != nil && (symbol.Flags&(ast.SymbolFlagsTypeLiteral|ast.SymbolFlagsSignature) == 0) {
+					t = b.ch.instantiateType(b.ch.getWidenedLiteralType(b.ch.getTypeOfSymbol(symbol)), b.ctx.mapper)
+				} else {
+					t = b.ch.errorType
+				}
 			}
 		}
 	}
@@ -2221,14 +2229,17 @@ func (b *NodeBuilderImpl) serializeTypeForDeclaration(declaration *ast.Declarati
 	var reportedInferenceFallback bool
 	// !!! expandable hover support
 	if !b.isActivelyExpanding() && tryReuse && b.ctx.enclosingDeclaration != nil && declaration != nil && (ast.IsAccessor(declaration) || (ast.HasInferredType(declaration) && !ast.NodeIsSynthesized(declaration) && (t.ObjectFlags()&ObjectFlagsRequiresWidening) == 0)) {
-		remove := b.addSymbolTypeToContext(symbol, t)
+		var remove func()
+		if symbol != nil {
+			remove = b.addSymbolTypeToContext(symbol, t)
+		}
 		var pt *pseudochecker.PseudoType
 		if ast.IsAccessor(declaration) {
 			pt = b.pc.GetTypeOfAccessor(declaration)
 		} else {
 			pt = b.pc.GetTypeOfDeclaration(declaration)
 		}
-		if (pt == nil || pt.Kind == pseudochecker.PseudoTypeKindNoResult) && ast.IsBinaryExpression(declaration) {
+		if (pt == nil || pt.Kind == pseudochecker.PseudoTypeKindNoResult) && ast.IsBinaryExpression(declaration) && symbol != nil {
 			if decl := core.Find(symbol.Declarations, hasTypeAnnotation); decl != nil {
 				// Binary expressions have a first-in-wins type annotation system. The first one with an annotation supplies the type for the rest.
 				pt = b.pc.GetTypeOfDeclaration(decl)
@@ -2265,7 +2276,9 @@ func (b *NodeBuilderImpl) serializeTypeForDeclaration(declaration *ast.Declarati
 				}
 			}
 		}
-		remove()
+		if remove != nil {
+			remove()
+		}
 	}
 	if result == nil {
 		if reportedInferenceFallback {
@@ -2410,7 +2423,7 @@ func (b *NodeBuilderImpl) isSingleQuotedStringNamed(d *ast.Declaration) bool {
 	return name != nil && ast.IsStringLiteral(name) && name.AsStringLiteral().TokenFlags&ast.TokenFlagsSingleQuote != 0
 }
 
-func (b *NodeBuilderImpl) getPropertyNameNodeForSymbol(symbol *ast.Symbol) *ast.Node {
+func (b *NodeBuilderImpl) getPropertyNameNodeForSymbol(symbol *ast.Symbol, enclosingDeclaration *ast.Node) *ast.Node {
 	// For hash-private names, clone the original private identifier from the declaration
 	if symbol.ValueDeclaration != nil {
 		declName := symbol.ValueDeclaration.Name()
@@ -2421,7 +2434,7 @@ func (b *NodeBuilderImpl) getPropertyNameNodeForSymbol(symbol *ast.Symbol) *ast.
 	stringNamed := len(symbol.Declarations) != 0 && core.Every(symbol.Declarations, b.isStringNamed)
 	singleQuote := len(symbol.Declarations) != 0 && core.Every(symbol.Declarations, b.isSingleQuotedStringNamed)
 	isMethod := symbol.Flags&ast.SymbolFlagsMethod != 0
-	fromNameType := b.getPropertyNameNodeForSymbolFromNameType(symbol, singleQuote, stringNamed, isMethod)
+	fromNameType := b.getPropertyNameNodeForSymbolFromNameType(symbol, enclosingDeclaration, singleQuote, stringNamed, isMethod)
 	if fromNameType != nil {
 		return fromNameType
 	}
@@ -2439,13 +2452,31 @@ func (b *NodeBuilderImpl) getPropertyNameNodeForSymbol(symbol *ast.Symbol) *ast.
 }
 
 // See getNameForSymbolFromNameType for a stringy equivalent
-func (b *NodeBuilderImpl) getPropertyNameNodeForSymbolFromNameType(symbol *ast.Symbol, singleQuote bool, stringNamed bool, isMethod bool) *ast.Node {
+func (b *NodeBuilderImpl) getPropertyNameNodeForSymbolFromNameType(symbol *ast.Symbol, enclosingDeclaration *ast.Node, singleQuote bool, stringNamed bool, isMethod bool) *ast.Node {
 	if !b.ch.valueSymbolLinks.Has(symbol) {
 		return nil
 	}
 	nameType := b.ch.valueSymbolLinks.TryGet(symbol).nameType
 	if nameType == nil {
 		return nil
+	}
+	enumEnclosingDeclaration := enclosingDeclaration
+	if enumEnclosingDeclaration == nil && b.ctx.enclosingFile != nil {
+		enumEnclosingDeclaration = b.ctx.enclosingFile.AsNode()
+	}
+	if nameType.flags&TypeFlagsEnumLiteral != 0 {
+		enumSymbol := nameType.symbol.Parent
+		if enumSymbol == nil {
+			enumSymbol = nameType.symbol
+		}
+		if enumEnclosingDeclaration != nil &&
+			b.ch.IsSymbolAccessibleByFlags(enumSymbol, enumEnclosingDeclaration, ast.SymbolFlagsValue) {
+			saveEnclosingDeclaration := b.ctx.enclosingDeclaration
+			b.ctx.enclosingDeclaration = enumEnclosingDeclaration
+			result := b.f.NewComputedPropertyName(b.symbolToExpression(nameType.symbol, ast.SymbolFlagsValue))
+			b.ctx.enclosingDeclaration = saveEnclosingDeclaration
+			return result
+		}
 	}
 	if nameType.flags&TypeFlagsStringOrNumberLiteral != 0 {
 		var name string
@@ -2504,7 +2535,7 @@ func (b *NodeBuilderImpl) addPropertyToElementList(propertySymbol *ast.Symbol, t
 	} else {
 		b.ctx.enclosingDeclaration = saveEnclosingDeclaration
 	}
-	propertyName := b.getPropertyNameNodeForSymbol(propertySymbol)
+	propertyName := b.getPropertyNameNodeForSymbol(propertySymbol, saveEnclosingDeclaration)
 	b.ctx.enclosingDeclaration = saveEnclosingDeclaration
 	b.ctx.approximateLength += len(ast.SymbolName(propertySymbol)) + 1
 
@@ -3563,8 +3594,12 @@ func (b *NodeBuilderImpl) lookupInstantiatedTypeArgumentNodes(chain []*ast.Symbo
 		}
 
 		targetSymbol := symbol
-		if symbol.Flags&ast.SymbolFlagsAlias != 0 {
+		if symbol.Flags&ast.SymbolFlagsAlias != 0 && !b.ch.canGetTypeParametersOfClassOrInterface(symbol) {
 			targetSymbol = b.ch.resolveAlias(symbol)
+		}
+
+		if !b.ch.canGetTypeParametersOfClassOrInterface(targetSymbol) {
+			return nil
 		}
 
 		params := b.getTypeParametersOfClassOrInterface(targetSymbol)

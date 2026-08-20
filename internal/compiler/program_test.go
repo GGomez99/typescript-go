@@ -246,7 +246,7 @@ func TestProgram(t *testing.T) {
 
 			program := compiler.NewProgram(compiler.ProgramOptions{
 				Config: &tsoptions.ParsedCommandLine{
-					ParsedConfig: &core.ParsedOptions{
+					ParsedConfig: &tsoptions.ParsedOptions{
 						FileNames:       []string{"c:/dev/src/index.ts"},
 						CompilerOptions: &opts,
 					},
@@ -286,7 +286,7 @@ func TestIncludeProcessorDiagnosticsWithMissingFileCasing(t *testing.T) {
 	// to load because it does not exist on the case-sensitive filesystem.
 	program := compiler.NewProgram(compiler.ProgramOptions{
 		Config: &tsoptions.ParsedCommandLine{
-			ParsedConfig: &core.ParsedOptions{
+			ParsedConfig: &tsoptions.ParsedOptions{
 				FileNames:       []string{"/src/MyFile.ts", "/src/myFile.ts"},
 				CompilerOptions: &opts,
 			},
@@ -328,7 +328,7 @@ func BenchmarkNewProgram(b *testing.B) {
 			opts := core.CompilerOptions{Target: testCase.target}
 			programOpts := compiler.ProgramOptions{
 				Config: &tsoptions.ParsedCommandLine{
-					ParsedConfig: &core.ParsedOptions{
+					ParsedConfig: &tsoptions.ParsedOptions{
 						FileNames:       []string{"c:/dev/src/index.ts"},
 						CompilerOptions: &opts,
 					},

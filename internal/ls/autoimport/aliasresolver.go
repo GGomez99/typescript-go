@@ -155,6 +155,11 @@ func (r *aliasResolver) CommonSourceDirectory() string {
 	panic("unimplemented")
 }
 
+// ContentMapperExtensions implements checker.Program.
+func (r *aliasResolver) ContentMapperExtensions() []string {
+	return nil
+}
+
 // FileExists implements checker.Program.
 func (r *aliasResolver) FileExists(fileName string) bool {
 	panic("unimplemented")

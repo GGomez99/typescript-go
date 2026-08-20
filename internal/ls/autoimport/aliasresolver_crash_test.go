@@ -58,7 +58,7 @@ func TestAliasResolverGetDiagnosticsDoesNotPanic(t *testing.T) {
 	}, text, core.ScriptKindTS)
 	binder.BindSourceFile(sourceFile)
 
-	resolver := module.NewResolver(host, core.EmptyCompilerOptions, "", "")
+	resolver := module.NewResolver(host, core.EmptyCompilerOptions, "", "", nil)
 	r := newAliasResolver(
 		[]*ast.SourceFile{sourceFile},
 		nil,

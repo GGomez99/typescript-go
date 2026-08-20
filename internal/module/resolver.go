@@ -19,11 +19,12 @@ import (
 )
 
 type resolved struct {
-	path                     string
-	extension                string
-	packageId                PackageId
-	originalPath             string
-	resolvedUsingTsExtension bool
+	path                         string
+	extension                    string
+	packageId                    PackageId
+	originalPath                 string
+	resolvedUsingTsExtension     bool
+	resolvedUsingExtraExtensions bool
 }
 
 func (r *resolved) shouldContinueSearching() bool {
@@ -159,6 +160,7 @@ type Resolver struct {
 	compilerOptions *core.CompilerOptions
 	typingsLocation string
 	projectName     string
+	extraExtensions []string
 	// reportDiagnostic: DiagnosticReporter
 }
 
@@ -171,6 +173,7 @@ func NewResolver(
 	options *core.CompilerOptions,
 	typingsLocation string,
 	projectName string,
+	extraExtensions []string,
 ) *Resolver {
 	return &Resolver{
 		host:            host,
@@ -178,6 +181,7 @@ func NewResolver(
 		compilerOptions: options,
 		typingsLocation: typingsLocation,
 		projectName:     projectName,
+		extraExtensions: extraExtensions,
 	}
 }
 
@@ -1234,6 +1238,7 @@ func (r *resolutionState) createResolvedModule(resolved *resolved, isExternalLib
 		resolvedModule.OriginalPath = resolved.originalPath
 		resolvedModule.IsExternalLibraryImport = isExternalLibraryImport
 		resolvedModule.ResolvedUsingTsExtension = resolved.resolvedUsingTsExtension
+		resolvedModule.ResolvedUsingExtraExtensions = resolved.resolvedUsingExtraExtensions
 		resolvedModule.Extension = resolved.extension
 		resolvedModule.PackageId = resolved.packageId
 	}
@@ -1497,7 +1502,11 @@ func (r *resolutionState) loadModuleFromFileNoImplicitExtensions(extensions exte
 	extensionless := tspath.RemoveFileExtension(candidate)
 	if extensionless == candidate {
 		// Once TS native extensions are handled, handle arbitrary extensions for declaration file mapping
-		extensionless = candidate[:strings.LastIndex(candidate, ".")]
+		extension := tspath.GetLongestExtensionFromPath(candidate, r.resolver.extraExtensions, false)
+		if extension == "" {
+			extension = candidate[strings.LastIndex(candidate, "."):]
+		}
+		extensionless = tspath.RemoveExtension(candidate, extension)
 	}
 
 	extension := candidate[len(extensionless):]
@@ -1615,6 +1624,13 @@ func (r *resolutionState) tryAddingExtensions(extensionless string, extensions e
 		}
 		return continueSearching()
 	default:
+		if slices.Contains(r.resolver.extraExtensions, originalExtension) {
+			// A fully specified import of an extraExtension resolves directly to the file.
+			if resolved := r.tryExtension(originalExtension, extensionless, false); !resolved.shouldContinueSearching() {
+				resolved.resolvedUsingExtraExtensions = true
+				return resolved
+			}
+		}
 		if extensions&extensionsDeclaration != 0 && !tspath.IsDeclarationFileName(extensionless+originalExtension) {
 			if resolved := r.tryExtension(".d"+originalExtension+".ts", extensionless, false); !resolved.shouldContinueSearching() {
 				return resolved
@@ -2165,7 +2181,7 @@ func extensionIsOk(extensions extensions, extension string) bool {
 }
 
 func ResolveConfig(moduleName string, containingFile string, host ResolutionHost) *ResolvedModule {
-	resolver := NewResolver(host, &core.CompilerOptions{ModuleResolution: core.ModuleResolutionKindNodeNext}, "", "")
+	resolver := NewResolver(host, &core.CompilerOptions{ModuleResolution: core.ModuleResolutionKindNodeNext}, "", "", nil)
 	return resolver.resolveConfig(moduleName, containingFile)
 }
 

@@ -55,7 +55,7 @@ func BenchmarkEmitLongLines(b *testing.B) {
 
 			p := compiler.NewProgram(compiler.ProgramOptions{
 				Config: &tsoptions.ParsedCommandLine{
-					ParsedConfig: &core.ParsedOptions{
+					ParsedConfig: &tsoptions.ParsedOptions{
 						FileNames:       []string{"/dev/src/index.ts"},
 						CompilerOptions: &opts,
 					},
@@ -110,7 +110,7 @@ func BenchmarkEmitManyFiles(b *testing.B) {
 
 	p := compiler.NewProgram(compiler.ProgramOptions{
 		Config: &tsoptions.ParsedCommandLine{
-			ParsedConfig: &core.ParsedOptions{
+			ParsedConfig: &tsoptions.ParsedOptions{
 				FileNames:       fileNames,
 				CompilerOptions: &opts,
 			},
@@ -168,7 +168,7 @@ func BenchmarkEmitLongLinesWithLineBreaks(b *testing.B) {
 
 	p := compiler.NewProgram(compiler.ProgramOptions{
 		Config: &tsoptions.ParsedCommandLine{
-			ParsedConfig: &core.ParsedOptions{
+			ParsedConfig: &tsoptions.ParsedOptions{
 				FileNames:       []string{"/dev/src/index.ts"},
 				CompilerOptions: &opts,
 			},

@@ -9,7 +9,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/core"
-	"github.com/microsoft/typescript-go/internal/stringutil"
+	"github.com/microsoft/typescript-go/internal/spanmap"
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/zeebo/xxh3"
 )
@@ -2463,11 +2463,12 @@ type SourceFile struct {
 	CompositeBase
 
 	// Fields set by NewSourceFile
-	fileName       string // For debugging convenience
-	parseOptions   SourceFileParseOptions
-	text           string
-	Statements     *NodeList  // NodeList[*Statement]
-	EndOfFileToken *TokenNode // TokenNode[*EndOfFileToken]
+	fileName          string // For debugging convenience
+	parseOptions      SourceFileParseOptions
+	text              string
+	contentMapperInfo *ContentMapperSourceFileInfo
+	Statements        *NodeList  // NodeList[*Statement]
+	EndOfFileToken    *TokenNode // TokenNode[*EndOfFileToken]
 
 	// Fields for lazily-computed data owned by packages outside ast.
 	dataMu sync.Mutex
@@ -2480,7 +2481,6 @@ type SourceFile struct {
 	LanguageVariant             core.LanguageVariant
 	ScriptKind                  core.ScriptKind
 	IsDeclarationFile           bool
-	ContainsNonASCII            bool
 	UsesUriStyleNodeCoreModules core.Tristate
 	IdentifierCount             int
 	imports                     []*LiteralLikeNode // []LiteralLikeNode
@@ -2507,14 +2507,12 @@ type SourceFile struct {
 
 	// Fields set by binder
 
-	isBound                   atomic.Bool
-	bindOnce                  sync.Once
-	bindDiagnostics           []*Diagnostic
-	BindSuggestionDiagnostics []*Diagnostic
-	EndFlowNode               *FlowNode
-	SymbolCount               int
-	PatternAmbientModules     []*PatternAmbientModule
-	GlobalExports             SymbolTable
+	isBound               atomic.Bool
+	bindOnce              sync.Once
+	bindDiagnostics       []*Diagnostic
+	SymbolCount           int
+	PatternAmbientModules []*PatternAmbientModule
+	GlobalExports         SymbolTable
 
 	// Fields set by ECMALineMap
 
@@ -2546,7 +2544,6 @@ func (f *NodeFactory) NewSourceFile(opts SourceFileParseOptions, text string, st
 	data.fileName = opts.FileName
 	data.parseOptions = opts
 	data.text = text
-	data.ContainsNonASCII = stringutil.ContainsNonASCII(text)
 	data.Statements = statements
 	data.EndOfFileToken = endOfFileToken
 	return f.newNode(KindSourceFile, data)
@@ -2558,6 +2555,133 @@ func (node *SourceFile) ParseOptions() SourceFileParseOptions {
 
 func (node *SourceFile) Text() string {
 	return node.text
+}
+
+// OriginalText returns the untransformed source text for content-mapped files, or Text() otherwise.
+func (node *SourceFile) OriginalText() string {
+	if node.ContentMapper() != "" {
+		return node.contentMapperInfo.OriginalText
+	}
+	return node.text
+}
+
+// OriginalFileName returns the canonical filename associated with a supplemental source file, or FileName() otherwise.
+func (node *SourceFile) OriginalFileName() string {
+	if canonical := node.CanonicalSourceFile(); canonical != nil {
+		return canonical.FileName()
+	}
+	return node.FileName()
+}
+
+// SpanMap returns the span map that maps positions in this file's transformed Text() back to its
+// original, untransformed content, or nil if the file is not content-mapped (or is a failure stub).
+// The returned map is nil-safe: a nil map maps positions identically.
+func (node *SourceFile) SpanMap() *spanmap.SpanMap {
+	if node.contentMapperInfo == nil {
+		return nil
+	}
+	return node.contentMapperInfo.SpanMap
+}
+
+// ContentMapper returns the identity of the content mapper that produced this file, or "" if the file
+// was not produced by a content mapper (or the mapper did not identify itself).
+func (node *SourceFile) ContentMapper() string {
+	if node.contentMapperInfo == nil {
+		return ""
+	}
+	return node.contentMapperInfo.ContentMapper
+}
+
+// IsContentMapperFailureStub reports whether this file is the empty placeholder produced when a content
+// mapper's transform failed.
+func (node *SourceFile) IsContentMapperFailureStub() bool {
+	return node.ContentMapper() != "" && node.SpanMap() == nil
+}
+
+func (node *SourceFile) ContentMapperTransformIdentity() string {
+	if node.contentMapperInfo == nil {
+		return ""
+	}
+	return node.contentMapperInfo.TransformIdentity
+}
+
+func (node *SourceFile) VirtualFileName() string {
+	if node.contentMapperInfo == nil {
+		return ""
+	}
+	return node.contentMapperInfo.VirtualFileName
+}
+
+type MappedDiagnosticDirectivePolicy uint8
+
+const (
+	MappedDiagnosticDirectivePolicyIgnore MappedDiagnosticDirectivePolicy = iota
+	MappedDiagnosticDirectivePolicyExpect
+)
+
+type MappedDiagnosticDirective struct {
+	OriginalRange     core.TextRange
+	VirtualRange      core.TextRange
+	Policy            MappedDiagnosticDirectivePolicy
+	UnusedCode        int32
+	UnusedMessageText string
+	Source            string
+}
+
+type ContentMapperSourceFileInfo struct {
+	ContentMapper           string
+	TransformIdentity       string
+	ParseOptions            SourceFileParseOptions
+	VirtualFileName         string
+	OriginalText            string
+	SpanMap                 *spanmap.SpanMap
+	DiagnosticDirectives    []MappedDiagnosticDirective
+	SupplementalSourceFiles []*SourceFile
+	CanonicalSourceFile     *SourceFile
+}
+
+// ContentMapperParseOptions returns the parse options used to acquire this file from the mapped parse cache.
+func (node *SourceFile) ContentMapperParseOptions() SourceFileParseOptions {
+	if node.contentMapperInfo == nil {
+		return SourceFileParseOptions{}
+	}
+	return node.contentMapperInfo.ParseOptions
+}
+
+// SetContentMapperInfo initializes all content-mapper metadata before the source file is published.
+func (node *SourceFile) SetContentMapperInfo(info ContentMapperSourceFileInfo) {
+	if node.contentMapperInfo != nil {
+		panic("content mapper source file info already set")
+	}
+	node.contentMapperInfo = &info
+}
+
+func (node *SourceFile) DiagnosticDirectives() []MappedDiagnosticDirective {
+	if node.contentMapperInfo == nil {
+		return nil
+	}
+	return node.contentMapperInfo.DiagnosticDirectives
+}
+
+// SupplementalSourceFiles returns the additional outputs produced from this canonical source file.
+func (node *SourceFile) SupplementalSourceFiles() []*SourceFile {
+	if node.contentMapperInfo == nil {
+		return nil
+	}
+	return node.contentMapperInfo.SupplementalSourceFiles
+}
+
+// CanonicalSourceFile returns the canonical output associated with this supplemental source file.
+func (node *SourceFile) CanonicalSourceFile() *SourceFile {
+	if node.contentMapperInfo == nil {
+		return nil
+	}
+	return node.contentMapperInfo.CanonicalSourceFile
+}
+
+// IsContentMapperSupplemental reports whether this is an unnamed supplemental mapper output.
+func (node *SourceFile) IsContentMapperSupplemental() bool {
+	return node.CanonicalSourceFile() != nil
 }
 
 func (file *SourceFile) HasIdentifier(name string) bool {
@@ -2680,10 +2804,12 @@ func (node *SourceFile) IsJS() bool {
 
 func (node *SourceFile) copyFrom(other *SourceFile) {
 	// Do not copy fields set by NewSourceFile (Text, FileName, Path, or Statements)
+	if other.contentMapperInfo != nil {
+		node.SetContentMapperInfo(*other.contentMapperInfo)
+	}
 	node.LanguageVariant = other.LanguageVariant
 	node.ScriptKind = other.ScriptKind
 	node.IsDeclarationFile = other.IsDeclarationFile
-	node.ContainsNonASCII = other.ContainsNonASCII
 	node.UsesUriStyleNodeCoreModules = other.UsesUriStyleNodeCoreModules
 	node.imports = other.imports
 	node.ModuleAugmentations = other.ModuleAugmentations
@@ -2774,11 +2900,7 @@ func (node *SourceFile) IsBound() bool {
 // GetPositionMap returns the PositionMap for this source file, computing it lazily.
 func (file *SourceFile) GetPositionMap() *PositionMap {
 	file.positionMapOnce.Do(func() {
-		if !file.ContainsNonASCII {
-			file.positionMap = &PositionMap{asciiOnly: true}
-		} else {
-			file.positionMap = ComputePositionMap(file.Text())
-		}
+		file.positionMap = ComputePositionMap(file.Text())
 	})
 	return file.positionMap
 }
