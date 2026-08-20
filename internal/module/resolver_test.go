@@ -96,7 +96,7 @@ func TestResolvePnpLodashSubmodulesHaveDistinctPackageIds(t *testing.T) {
 		Module:           core.ModuleKindESNext,
 		Target:           core.ScriptTargetESNext,
 	}
-	resolver := module.NewResolver(host, opts, "", "")
+	resolver := module.NewResolver(host, opts, "", "", nil)
 
 	get, _ := resolver.ResolveModuleName("lodash/get", "/repo/src/file.ts", core.ModuleKindESNext, nil)
 	set, _ := resolver.ResolveModuleName("lodash/set", "/repo/src/file.ts", core.ModuleKindESNext, nil)

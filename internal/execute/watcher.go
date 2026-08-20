@@ -429,7 +429,7 @@ func (w *Watcher) doBuild() error {
 
 	if w.program != nil && w.programReady && !w.configModified && !w.watchSetDirty && !w.forceFullRebuild {
 		cached := cachedvfs.From(w.sys.FS())
-		innerHost := compiler.NewCompilerHost(w.sys.GetCurrentDirectory(), cached, w.sys.DefaultLibraryPath(), w.extendedConfigCache, getTraceFromSys(w.sys, w.config.Locale(), w.testing), w.contentMapperProject)
+		innerHost := compiler.NewCompilerHost(w.sys.GetCurrentDirectory(), cached, w.sys.DefaultLibraryPath(), w.extendedConfigCache, w.sys.PnpApi(), getTraceFromSys(w.sys, w.config.Locale(), w.testing), w.contentMapperProject)
 		host := &watchCompilerHost{CompilerHost: innerHost, cache: w.sourceFileCache}
 
 		if w.tryUpdateProgram(host) {

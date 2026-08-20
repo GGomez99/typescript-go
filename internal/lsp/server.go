@@ -1729,10 +1729,9 @@ func (s *Server) handleInitialized(ctx context.Context, params *lsproto.Initiali
 		cwd = s.cwd
 	}
 
-	fs := s.fs
-	pnpApi := pnp.InitPnpApi(fs, cwd)
+	pnpApi := pnp.InitPnpApi(s.fs, cwd)
 	if pnpApi != nil {
-		fs = pnpvfs.From(fs)
+		s.fs = pnpvfs.From(s.fs)
 	}
 
 	s.telemetryEnabled = enableTelemetry
